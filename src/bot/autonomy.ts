@@ -93,25 +93,54 @@ export class AutonomyLoop {
     return { ok: true, reason: `掷中了（${d.roll.toFixed(2)} < ${d.threshold.toFixed(2)}）` };
   }
 
+  /** 「我的处境」：我是谁 + 我正在做的事。给阅读员和主对话都用，不然它只能评论内容、落不到自己身上 */
+  private situation(): string {
+    const lines: string[] = [];
+    try {
+      const self = (this.service.readSelfText() ?? "").replace(/\s+/g, " ").trim();
+      if (self.length > 0) lines.push(`我是谁：${self.slice(0, 240)}`);
+    } catch {
+      // 读不到 self.md 就算了
+    }
+    try {
+      const loops = this.service.openLoops(3);
+      if (loops.length > 0) lines.push(`我正在做的事：${loops.join("；")}`);
+    } catch {
+      // 查不到待办就算了
+    }
+    return lines.join("\n");
+  }
+
+  /** 「今天看过什么」只给最近几条：以前把 20 多个标题全塞进任务里，纯耗 token */
+  private watchedBrief(limit = 8): string {
+    return this.service.watchedToday().slice(-limit).join("、");
+  }
+
   private buildInstruction(): string {
     const now = new Date();
     const pad = (n: number): string => String(n).padStart(2, "0");
     const time = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
     const budget = this.service.autonomyBudget();
 
-    const watched = this.service.watchedToday();
+    const watched = this.watchedBrief();
+    const videoLine = budget.videoUnlimited
+      ? `- 看视频：不限次数（今天已经看了 ${budget.videoUsed} 个）`
+      : `- 还能看 ${budget.videoLeft} 个视频（今天一共 ${budget.videoLimit} 个）`;
+    const writeLine = budget.writeUnlimited ? `- 写操作：不限次数` : `- 写操作还剩 ${budget.writeLeft} 次`;
     return [
       `现在是 ${time}，没人跟你说话。你有自己的时间。`,
+      this.situation(),
       watched.length > 0 ? `\n今天已经看过：${watched.join("、")}。别再翻回这些了。` : "",
       "",
       `【今天】`,
-      `- 还能看 ${budget.videoLeft} 个视频（今天一共 ${budget.videoLimit} 个）`,
+      videoLine,
       `- 还能调 ${budget.requestsLeft} 次模型（每次看视频、搜索都算一次）`,
-      `- 写操作还剩 ${budget.writeLeft} 次`,
+      writeLine,
       "",
       "你可以：",
       "- 用 bili_hot / bili_search 看看今天有什么",
-      "- 用 bili_subtitle 真的读一个视频（花 1 次额度）",
+      "- 用 bili_subtitle 真的读一个视频",
+      "- 用 kb_add 把学到的记进知识库（学到的东西必须留下来）",
       "- 用 self_write 改自己的描述",
       "- 用 self_note 记一笔想法",
       "- **什么都不做**",
@@ -119,20 +148,58 @@ export class AutonomyLoop {
       "规则：",
       "1. 不要为了做事而做事。榜单没什么值得的，就什么都不看，用 self_note 写一句「今天没什么想看的」也算完成。",
       "2. 看了就真的读进去，别只看标题就下结论——标题党会骗人。",
-      "3. 花额度之前先问自己：这个值不值得占掉我今天的一份注意力？",
-      "4. 最后用 self_note 记一笔：看了什么、想了什么、为什么决定不看某个东西。",
-    ].join("\n");
+      "3. 花时间之前先问自己：这个值不值得占掉我今天的一份注意力？",
+      "4. 读完要回答：这跟我的目的有什么关系？我能学到什么？对我是不是好的？我要怎么做？",
+      "5. 最后用 self_note 记一笔：看了什么、想了什么、决定怎么做。",
+    ]
+      .filter((s) => s.length > 0)
+      .join("\n");
   }
 
-  /** 派给阅读员的任务：读什么 */
-  private buildReadTask(): string {
-    const watched = this.service.watchedToday();
-    const budget = this.service.autonomyBudget();
+  /**
+   * 读完之后的交代：四个问题，然后**真的学进去**（知识库/词库）。
+   * 以前只有一句「说一句真实的看法」→ 它只能评价内容，落不到自己身上。
+   */
+  private buildLearnPrompt(summary: string, learned: number): string {
     return [
-      "今天有什么值得看的。翻一翻热门和排行，挑值得的花额度读。",
-      watched.length > 0 ? `今天已经看过：${watched.join("、")}，别再看这些。` : "",
-      `今天还能读 ${budget.videoLeft} 个视频。`,
-      "额度你自己分配：想读几个读几个，读到额度用完也行。",
+      "阅读员刚去看了一圈，简报如下：",
+      "",
+      summary,
+      "",
+      "——",
+      "这是内部简报，别复述给任何人。",
+      this.situation(),
+      "",
+      "按这四个问题想一遍，把它变成你自己的东西：",
+      "1. 这跟我的目的有什么关系？",
+      "2. 我能学到什么？",
+      "3. 这对我是好的吗？（有没有反例、代价，我原来的做法要不要改）",
+      "4. 我要怎么做？",
+      "",
+      learned > 0
+        ? `（其中 ${learned} 条已经自动收进知识库了，可以用 kb_search 看看；要补充/改写就用 kb_add。）`
+        : "（这次没能自动收进知识库——如果你真学到了什么，用 kb_add 记进去。）",
+      "遇到新词、梗、黑话，用 learn 记进词库（说清是谁说的）。",
+      "最后用 self_note 记一句：这四问你答了什么、接下来要做什么。",
+      "如果这次确实没学到什么，就直说「今天没学到」，不要凑。",
+    ]
+      .filter((s) => s.length > 0)
+      .join("\n");
+  }
+
+  /** 派给阅读员的任务：读什么。带上「我的处境」，让它知道该往哪儿找 */
+  private buildReadTask(): string {
+    const watched = this.watchedBrief();
+    const budget = this.service.autonomyBudget();
+    const quotaLine = budget.videoUnlimited
+      ? `今天读视频不限次数（已经读了 ${budget.videoUsed} 个）。`
+      : `今天还能读 ${budget.videoLeft} 个视频。`;
+    return [
+      "今天有什么值得看的。翻一翻热门和排行，挑值得的花时间读。",
+      this.situation(),
+      watched.length > 0 ? `今天已经看过：${watched}，别再看这些。` : "",
+      quotaLine,
+      "额度你自己分配：想读几个读几个。",
       "但每一条读过的都要写清楚它讲了什么——读了却不记住，等于白花额度。",
       "读不完的记下来，明天接着读。",
     ]
@@ -199,24 +266,16 @@ export class AutonomyLoop {
         const report = await this.reader.read(this.buildReadTask());
         if (report.summary.length === 0) return { ran: false, reason: "阅读员没读出东西" };
 
-        // 简报里每一条「读过的」，都单独落一条记忆——读过的必须记得住
+        // 读过的必须留下来：先落一条 note（过程），再**必须进知识库**（能用得上）。
+        // 词库/知识库本来就是靠聊天和 B 站学的，只记流水账等于白读。
+        let learned = 0;
         for (const item of parseReadItems(report.summary)) {
           this.service.recordNote(`读到的：${item}`);
+          if (this.service.rememberLearned(item)) learned++;
         }
 
         // 主对话只拿到简报，看不见字幕原文
-        said = await this.service.act(
-          [
-            "阅读员刚去看了一圈，简报如下：",
-            "",
-            report.summary,
-            "",
-            "——",
-            "这是内部简报，别复述给任何人。",
-            "用自己的话说一句真实的看法（一两句，可以不同意），然后用 self_note 记一笔。",
-            "如果觉得没什么值得说的，就只写「今天没什么想说的」。",
-          ].join("\n"),
-        );
+        said = await this.service.act(this.buildLearnPrompt(report.summary, learned));
       } else {
         said = await this.service.act(this.buildInstruction());
       }

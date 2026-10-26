@@ -447,6 +447,51 @@ return this.act(lines.join("\n"), loadTuning(this.cfg.dataDir).maxToolRounds);
     const members = await fn(groupId);
     if (members.length === 0) return null;
     return saveGroupMembers(this.db, groupId, members).count;
+  }  /** 读它自己写的那份自我描述（阅读员/走神要拿它当「我的处境」） */
+  readSelfText(): string {
+    try {
+      return readSelf(this.cfg.dataDir);
+    } catch {
+      return "";
+    }
+  }  /** 我正在做的事（给自己看的）：最近的待办 / 需跟进 / 项目，阅读员和走神都用它当“处境” */
+  openLoops(limit = 3): string[] {
+    try {
+      const rows = this.db
+        .prepare(
+          `SELECT title FROM events
+           WHERE COALESCE(archived,0) = 0
+             AND (status IN ('需跟进','待确认') OR etype = '待办' OR kind = 'project')
+           ORDER BY ts DESC LIMIT ?`,
+        )
+        .all(limit) as Array<{ title: string }>;
+      return rows.map((r) => String(r.title ?? "").trim()).filter((s) => s.length > 0);
+    } catch {
+      return [];
+    }
+  }  /** 从 B 站学到的东西必须进知识库（不是记一条流水账 note 就完了） */
+  rememberLearned(raw: string): { ok: boolean; title: string } | null {
+    const line = String(raw ?? "").replace(/\s+/g, " ").trim();
+    if (line.length < 4) return null;
+    const bv = /BV[0-9A-Za-z]{8,12}/.exec(line)?.[0] ?? "";
+    const rest = line.replace(bv, "").replace(/^[\s\-—－:：·]+/, "").trim();
+    const parts = rest.split(/\s*[—－]{1,2}\s*|\s*--\s*/);
+    const title = String(parts[0] ?? rest).trim().slice(0, 40);
+    const content = (parts.slice(1).join("；").trim() || rest).slice(0, 400);
+    if (title.length < 2) return null;
+    try {
+      const known = (this.db.prepare("SELECT name FROM anchors").all() as Array<{ name: string }>).map((r) => r.name);
+      addKnowledge(this.cfg.dataDir, {
+        category: "B站",
+        title,
+        content,
+        source: bv || "B站",
+        knownAnchors: known,
+      });
+      return { ok: true, title };
+    } catch {
+      return null;
+    }
   }  /** 把这份对话历史缓存丢掉，下次 historyFor 从 turns 表重读 */
   forgetHistory(): void {
     this.history.clear();
@@ -576,16 +621,35 @@ return this.act(lines.join("\n"), loadTuning(this.cfg.dataDir).maxToolRounds);
   }  /** ������Ķ�ȿ��� */  autonomyBudget(): {
     videoLeft: number;
     videoLimit: number;
+    videoUsed: number;
+    videoUnlimited: boolean;
     writeLeft: number;
     writeLimit: number;
+    writeUsed: number;
+    writeUnlimited: boolean;
     roundsLeft: number;
     roundsLimit: number;
   } {
     const videoLimit = this.cfg.biliDailyVideoQuota;
     const writeLimit = this.cfg.biliDailyWriteLimit;
     const roundsLimit = this.cfg.autonomyDailyRounds;
+    // 0 的语义是「不限」（聊天提示词一直这么解释），但以前这里算成 max(0, 0 - used) = 0，
+    // 于是自主活动被告知「今天还能读 0 个视频」，阅读员一整天只翻标题、一条字幕不读。
+    const videoUnlimited = videoLimit <= 0;
+    const writeUnlimited = writeLimit <= 0;
+    const videoUsed = quotaUsed(this.db, "video");
+    const writeUsed = quotaUsed(this.db, "write");
     return {
-      videoLeft: Math.max(0, videoLimit - quotaUsed(this.db, "video")),      videoLimit,      writeLeft: Math.max(0, writeLimit - quotaUsed(this.db, "write")),      writeLimit,      roundsLeft: Math.max(0, roundsLimit - quotaUsed(this.db, "autonomy")),      roundsLimit,    };
+      videoLeft: videoUnlimited ? Number.MAX_SAFE_INTEGER : Math.max(0, videoLimit - videoUsed),
+      videoLimit,
+      videoUsed,
+      videoUnlimited,
+      writeLeft: writeUnlimited ? Number.MAX_SAFE_INTEGER : Math.max(0, writeLimit - writeUsed),
+      writeLimit,
+      writeUsed,
+      writeUnlimited,
+      roundsLeft: roundsLimit <= 0 ? Number.MAX_SAFE_INTEGER : Math.max(0, roundsLimit - quotaUsed(this.db, "autonomy")),
+      roundsLimit,    };
   }  /**   * �������һ�֣�û����˵�������Լ�������ʲô��   *   * �� handle �����𣺲�����ԭʼ�Ի����������þ����أ��������ڱ��ʣ���   * ֻ�ѡ��Լ������Լ��Ķ�Ƚ�������   */  async act(instruction: string, maxRounds = 0): Promise<string> {
     this.lastActivityAt = Date.now();
     touchActivity(this.lastActivityAt);
