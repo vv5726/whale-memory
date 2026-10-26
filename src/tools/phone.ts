@@ -1,4 +1,4 @@
-﻿import { execFile } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -35,6 +35,22 @@ async function firstDevice(opts: PhoneOptions): Promise<string | null> {
 }
 
 const NO_DEVICE = "没有连上手机（检查 USB 调试是否打开，或先跑 adb connect）";
+
+/**
+ * 不看抖音（2026-10-26 定的）。
+ *
+ * 为什么拦在工具层，不只写在提示词里：提示词它可能忽略，滑一下就没完，
+ * 而且刷抖音那套（开 App → 滑 → 读屏）每次都花掉真实的注意力。
+ * 要重新放开，把这两行和下面两处 `if (isDouyin(...))` 删掉就行。
+ */
+const DOUYIN_APP = /aweme|douyin/i;
+const DOUYIN_WORD = /抖音|douyin|aweme|短视频/i;
+
+export function isDouyin(text: string): boolean {
+  return DOUYIN_APP.test(text) || DOUYIN_WORD.test(text);
+}
+
+const DOUYIN_OFF = "不看抖音——这个定过了，手机上还有别的可玩。";
 
 interface UiNode {
   text: string;
@@ -148,7 +164,7 @@ export function registerPhoneTools(registry: ToolRegistry, opts: PhoneOptions): 
     },
     {
       name: "phone_swipe",
-      description: "滑动屏幕。刷抖音用：从下往上滑（起点 y 大、终点 y 小）看下一个视频。",
+      description: "滑动屏幕。翻下一个视频、翻页、滚列表都用它（起点 y 大、终点 y 小是往上翻）。",
       parameters: {
         type: "object",
         properties: {
@@ -270,17 +286,18 @@ export function registerPhoneTools(registry: ToolRegistry, opts: PhoneOptions): 
     },
     {
       name: "phone_open_app",
-      description: "按应用包名启动一个 App。抖音是 com.ss.android.ugc.aweme，QQ 是 com.tencent.mobileqq。",
+      description: "按应用包名启动一个 App。QQ 是 com.tencent.mobileqq，B 站是 tv.danmaku.bili。",
       parameters: {
         type: "object",
         properties: { package: { type: "string", description: "应用包名" } },
         required: ["package"],
       },
       handler: async (args) => {
-        const device = await firstDevice(opts);
-        if (!device) return { ok: false, text: NO_DEVICE };
         const pkg = String(args.package ?? "").trim();
         if (!/^[a-zA-Z0-9._]+$/.test(pkg)) return { ok: false, text: "包名不合法" };
+        if (isDouyin(pkg)) return { ok: false, text: DOUYIN_OFF };
+        const device = await firstDevice(opts);
+        if (!device) return { ok: false, text: NO_DEVICE };
         const out = await adb(opts, ["-s", device, "shell", "monkey", "-p", pkg, "-c", "android.intent.category.LAUNCHER", "1"]);
         if (out.includes("No activities found")) return { ok: false, text: `手机上没有装 ${pkg}` };
         return { ok: true, text: `启动了 ${pkg}` };
@@ -301,7 +318,7 @@ export function registerPhoneTools(registry: ToolRegistry, opts: PhoneOptions): 
     {
       name: "phone_dump_ui",
       description:
-        "读取当前屏幕上的所有文字（按钮、标题、评论、热搜话题等）。比截图更有用：这是结构化的文字，不消耗视觉能力。刷抖音看热搜、看视频文案都用它。",
+        "读取当前屏幕上的所有文字（按钮、标题、评论、热搜话题等）。比截图更有用：这是结构化的文字，不消耗视觉能力。看页面文案、找按钮的坐标都用它。",
       parameters: { type: "object", properties: {} },
       handler: async () => {
         const device = await firstDevice(opts);
@@ -334,10 +351,11 @@ export function registerPhoneTools(registry: ToolRegistry, opts: PhoneOptions): 
         required: ["text"],
       },
       handler: async (args) => {
-        const device = await firstDevice(opts);
-        if (!device) return { ok: false, text: NO_DEVICE };
         const want = String(args.text ?? "").trim();
         if (want.length === 0) return { ok: false, text: "没说要点击什么文字" };
+        if (isDouyin(want)) return { ok: false, text: DOUYIN_OFF };
+        const device = await firstDevice(opts);
+        if (!device) return { ok: false, text: NO_DEVICE };
         const nodes = await dumpUi(opts, device);
         const exact = args.exact === true;
         const hit = nodes.find((n) => (exact ? n.text.trim() === want : n.text.includes(want)));

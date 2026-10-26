@@ -1,4 +1,4 @@
-﻿import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 /**
@@ -43,7 +43,7 @@ const DEFAULTS: Tuning = {
   groupSpeakThreshold: 0.6,
   silentCheckMinutes: 3,
   silentGiveUpMinutes: 60,
-  maxToolRounds: 20,
+  maxToolRounds: 0,
   v3MinValue: 3,
   v3MaxEvents: 8,
 };
@@ -65,7 +65,7 @@ export function loadTuning(dataDir: string): Tuning {
       groupSpeakThreshold: clamp(Number(raw.groupSpeakThreshold ?? DEFAULTS.groupSpeakThreshold), 0, 1),
       silentCheckMinutes: Math.max(1, Math.min(120, Number(raw.silentCheckMinutes ?? DEFAULTS.silentCheckMinutes))),
       silentGiveUpMinutes: Math.max(5, Math.min(1440, Number(raw.silentGiveUpMinutes ?? DEFAULTS.silentGiveUpMinutes))),
-      maxToolRounds: Math.max(3, Math.min(50, Number(raw.maxToolRounds ?? DEFAULTS.maxToolRounds))),
+      maxToolRounds: Math.max(0, Math.min(200, Number(raw.maxToolRounds ?? DEFAULTS.maxToolRounds))),
       v3MinValue: Math.max(0, Math.min(10, Number(raw.v3MinValue ?? DEFAULTS.v3MinValue))),
       v3MaxEvents: Math.max(1, Math.min(30, Number(raw.v3MaxEvents ?? DEFAULTS.v3MaxEvents))),
     };
@@ -84,7 +84,7 @@ export function saveTuning(dataDir: string, t: Partial<Tuning>): Tuning {
     groupSpeakThreshold: clamp(Number(t.groupSpeakThreshold ?? cur.groupSpeakThreshold), 0, 1),
     silentCheckMinutes: Math.max(1, Math.min(120, Number(t.silentCheckMinutes ?? cur.silentCheckMinutes))),
     silentGiveUpMinutes: Math.max(5, Math.min(1440, Number(t.silentGiveUpMinutes ?? cur.silentGiveUpMinutes))),
-    maxToolRounds: Math.max(3, Math.min(50, Number(t.maxToolRounds ?? cur.maxToolRounds))),
+    maxToolRounds: Math.max(0, Math.min(200, Number(t.maxToolRounds ?? cur.maxToolRounds))),
     v3MinValue: Math.max(0, Math.min(10, Number(t.v3MinValue ?? cur.v3MinValue))),
     v3MaxEvents: Math.max(1, Math.min(30, Number(t.v3MaxEvents ?? cur.v3MaxEvents))),
   };

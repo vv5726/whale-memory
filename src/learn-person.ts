@@ -22,7 +22,7 @@ export function resolveSaidBy(db: DatabaseSync, saidBy: unknown): { qq: string; 
   );
   if (hit) return { qq: hit.qqId, name: hit.name || hit.qqId };
 
-  // 名字里带这个人（「某某说的」这种）也算
+  // 名字里带这个人（「对方 说的」这种）也算
   const partial = people.find((p) => p.name && p.name.length >= 2 && who.includes(p.name));
   if (partial) return { qq: partial.qqId, name: partial.name || partial.qqId };
 

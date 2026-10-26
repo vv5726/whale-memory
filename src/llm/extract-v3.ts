@@ -72,13 +72,17 @@ export function buildV3Messages(
     "7. 每条 event 至少一条 evidence，msg_id 必须抄消息前面的编号，不许自己编。",
     "8. 纯情绪、无对象的感叹、刷屏 → 不记。",
     "9. memory_value 0-10：未来可能被问起 2、涉及人或情绪 2、有时效会变 2、证据明确 2、重复出现或状态变化 2。",
-    `10. 说话人用 QQ 号：${names.user} 就是 ${names.user}，你自己叫「凝」。`,
+    `10. 说话人一律用 QQ 号：他 = ${names.user}，你自己 = ${names.assistant}。`,
+    "11. evidence.speaker 必须填消息前面那个 QQ 号；那条消息标的是「（没标说话人）」就留空。",
+    "    绝对不要写「他」「她」「我」「你」——那不是人，是代词，存进库里以后没人认得出是谁。",
   ].join("\n");
 
   const user = [
     `日期：${day}`,
     "聊天记录（每条前面 [方括号] 里是消息编号，evidence.msg_id 必须用它）：",
-    ...turns.map((t) => `[${t.id}] ${t.speakerId || (t.role === "user" ? "他" : "凝")}: ${t.text}`),
+    // 没标说话人的别再写成「他」：模型会把这个标签当成说话人抄进 evidence.speaker，
+    // 库里就会出现 speaker_id = "他" 这种事（2026-10-26 查出 11 条）。
+    ...turns.map((t) => `[${t.id}] ${t.speakerId || (t.role === "user" ? "（没标说话人）" : "凝")}: ${t.text}`),
   ].join("\n");
 
   return [

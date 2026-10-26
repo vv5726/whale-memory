@@ -39,7 +39,7 @@ extractDayWithLlm(
 `turns` 每条形如：
 
 ```json
-{ "id": "t_xxx", "role": "user" | "assistant", "text": "原话", "speakerId": "你自己" }
+{ "id": "t_xxx", "role": "user" | "assistant", "text": "原话", "speakerId": "10000001" }
 ```
 
 **按天分批，每批最多 60 轮**（`CHUNK = 60`）。为什么：一次塞 700 轮，模型只会挑最显眼的十几件事。

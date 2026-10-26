@@ -1,4 +1,4 @@
-﻿/**
+/**
  * QQ 表情（face）的 id → 含义。
  *
  * 这些是 QQ 固定的表情编号，不是猜的。凝收到的消息里带
@@ -388,7 +388,12 @@ export function describeCqCodes(text: string): string {
   let out = String(text ?? "");
 
   // 表情：[CQ:face,id=467,...] → （表情：摇花手）
+  // 同一个 id 只认一次：NapCat 有时一个表情给两段（face 段重复），
+  // 以前会变成「发了个表情：流泪」两遍，它读完以为对方连发两次。
+  const seenFaceIds = new Set<string>();
   out = out.replace(/\[CQ:face,id=(\d+)([^\]]*)\]/g, (_m, id: string, rest: string) => {
+    if (seenFaceIds.has(id)) return "";
+    seenFaceIds.add(id);
     const name = QQ_FACES[id];
     // NapCat 有时会把表情名放在 faceText 里，优先用它
     const faceText = /faceText=([^,\]]*)/.exec(rest)?.[1]?.replace(/^\/+/, "").trim();

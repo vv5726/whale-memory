@@ -95,11 +95,20 @@ export async function describeImagesInText(text: string, dataDir: string): Promi
   if (found.length === 0) return text;
 
   let out = text;
+  // 同一条消息里同一张图只解读一次：NapCat 有时一个表情包给两段，
+  // 以前会跑两遍「看图 + 读意思」（两次模型调用），出来的还是同一个描述。
+  const labels = new Map<string, string>();
   for (const item of found.slice(0, 3)) {
     try {
       const res = await fetch(item.url, { signal: AbortSignal.timeout(30_000) });
       const buf = Buffer.from(await res.arrayBuffer());
       const hash = createHash("sha256").update(buf).digest("hex").slice(0, 16);
+      const done = labels.get(hash);
+      if (done !== undefined) {
+        // 第一份已经带了描述，重复的那一段直接丢掉，别拼第二遍
+        out = out.replace(item.full, "");
+        continue;
+      }
       const file = join(dataDir, "images", hash + ".jpg");
       mkdirSync(join(dataDir, "images"), { recursive: true });
       writeFileSync(file, buf);
@@ -108,7 +117,13 @@ export async function describeImagesInText(text: string, dataDir: string): Promi
       let desc = remembered(dataDir, hash) ?? "";
       if (desc.length === 0) {
         const r = await describeImage(file);
-        desc = r.ok ? r.text.replace(/\s+/g, " ").slice(0, 200) : item.summary || "看不清";
+        // 眼睛没起来的时候别把原因吞成「看不清」——她会照着说「图太糊」，
+        // 而真相是本地模型没跑（2026-10-26：Ollama 端口没监听、模型目录是空的）。
+        desc = r.ok
+          ? r.text.replace(/\s+/g, " ").slice(0, 200)
+          : item.summary
+            ? `${item.summary}（看图没成功：${r.text}）`
+            : `看不清：${r.text}`;
         if (r.ok) remember(dataDir, hash, desc);
       }
 
@@ -117,6 +132,7 @@ export async function describeImagesInText(text: string, dataDir: string): Promi
       const meaning = await interpretImage(dataDir, desc, recent).catch(() => "");
 
       const label = meaning.length > 0 ? `[发了一张图｜图里：${desc}｜可能是：${meaning}]` : `[发了一张图｜图里：${desc}]`;
+      labels.set(hash, label);
       out = out.replace(item.full, label);
     } catch {
       out = out.replace(item.full, item.summary ? `[发了张图：${item.summary}]` : "[发了张图，看不清]");

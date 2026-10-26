@@ -1,4 +1,4 @@
-﻿import type { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 import { newId } from "./util.ts";
 
 /**
@@ -78,13 +78,17 @@ export function ensurePerson(db: DatabaseSync, qqId: string | number, displayNam
     if (nick && nick !== row.display_name && !aliases.includes(nick) && !isPronoun(nick)) {
       aliases.push(nick);
     }
+    // 主名不被群名片覆盖：名片随时会改成表情、缩写，
+    // 一覆盖就把「某某」变成「🌿」，以后谁都认不出他是谁。
+    // 只有原来没有主名时才用新昵称填上。
+    const primary = row.display_name.trim().length > 0 ? row.display_name : nick;
     db.prepare("UPDATE people SET display_name = ?, aliases = ?, last_seen = ? WHERE qq_id = ?").run(
-      nick || row.display_name,
+      primary,
       JSON.stringify(aliases.slice(0, 20)),
       now,
       id,
     );
-    return { qqId: id, displayName: nick || row.display_name, anchorId: row.anchor_id };
+    return { qqId: id, displayName: primary, anchorId: row.anchor_id };
   }
 
   // 新人：建锚点（kind=person，external_id=QQ号）。

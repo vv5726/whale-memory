@@ -4,6 +4,8 @@ import { registerBasicTools } from "./basic.ts";
 import { registerPhoneGuide, registerPhoneTools } from "./phone.ts";
 import { registerBiliTools } from "./bili.ts";
 import { registerSelfTools } from "./self.ts";
+import { registerLogTools } from "./logs.ts";
+import { registerRosterTools } from "./roster.ts";
 import { registerJournalTools } from "./journal.ts";
 import { registerSelfMemoryTools } from "./selfmemory.ts";
 import { registerKbTools } from "./kb.ts";
@@ -87,7 +89,9 @@ export function buildTools(
   });
 
   registerSelfTools(registry, cfg.dataDir);
+  registerLogTools(registry, cfg.dataDir);
   if (db) registerSelfMemoryTools(registry, db, memoryHooks);
+  if (db) registerRosterTools(registry, { db });
   registerTuneTool(registry, memoryHooks);
   if (db && memoryHooks) registerForgetTool(registry, memoryHooks);
   if (db && memoryHooks) registerPinTool(registry, memoryHooks);
@@ -109,7 +113,7 @@ export function buildTools(
   registerJournalTools(registry, cfg.dataDir, () => dayKey(Date.now()), db);
 
   if (!phoneReady) {
-    console.log("[tools] ???????????��???????????????????????????");
+    console.log("[tools] 手机连上了，手机工具已挂上");
   }
   return registry;
 }

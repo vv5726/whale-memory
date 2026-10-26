@@ -7,10 +7,15 @@
 - **分层记忆**：detailed → compressed → fossil → cold，按预算下沉，不是按时间遗忘
 - **锚点网络**：只有三类——人、事、环境。宁可少连，不做垃圾桶
 - **事件卡**：一条 = 一件事（约定/待办/决策/经历/信息/冲突），带状态、价值分、原话证据
+- **人物图**：people ↔ 锚点真正绑定（号码锚点/名字锚点/别名是同一个人），
+  `event_anchors.role` 区分「谁说的 / 关于他的」，提示词里按人挂内容
+- **群名册**：从 OneBot 拉全群成员（不只是说过话的人），进群退群自动跟上
 - **词库 / 知识库 / 人物库**：梗归词库、理论归知识库、偏好归人物库，各归其位
 - **会走神**：随机锚点 → 关联记忆 → 拍个决定（去做 / 去找人 / 算了）
-- **本机眼睛**：qwen2.5vl 本地看图，不花钱、不上传
-- **能动手**：手机（ADB）、B 站（搜索/看字幕/点赞）
+- **本机眼睛**：qwen2.5vl 本地看图，不花钱、不上传（Ollama 没起来会说「看图没成功」，不会怪图糊）
+- **能动手**：手机（ADB）、B 站（搜索/看字幕/点赞）、读自己的运行日志
+- **工具轮次不设上限**：跑到它自己不再调工具为止（`maxToolRounds = 0`），
+  刹车交给每日预算和单次超时
 
 ## 技术上
 
@@ -56,7 +61,8 @@
 
 ## 文档
 
-- [`docs/architecture.md`](docs/architecture.md) 记忆架构
+- [`docs/architecture.md`](docs/architecture.md) 记忆架构（为什么这么设计）
+- [`docs/blueprint.md`](docs/blueprint.md) 现状施工图：记忆结构 / 行为结构 / 整体结构 + 复刻路线（**想照着做一套，先看这份**）
 - [`docs/extraction.md`](docs/extraction.md) 抽取全链路（含四个坑）
 - [`docs/plan-memory-refactor.md`](docs/plan-memory-refactor.md) 三类分仓的规划
 - [`docs/future-scoring.md`](docs/future-scoring.md) 为什么规则打分不如模型打分

@@ -1,4 +1,4 @@
-﻿import { numbersBackedBy } from "../numerals.ts";
+import { numbersBackedBy } from "../numerals.ts";
 import { loadSpeechRules } from "../speech-rules.ts";
 
 /**
@@ -100,6 +100,16 @@ export function buildChatPrompt(input: {
   quota?: { videoUsed: number; videoLimit: number; writeUsed: number; writeLimit: number };
   /** 今天看过什么、记了什么——常驻，不靠检索 */
   today?: { watched: string[]; notes: string[] };
+  /** 读心结果：他的潜台词、情绪、我听完的反应（router 先算好，挂在 evt.mind 上） */
+  mind?: { surface: string; emotion: string; myReaction: string } | null;
+  /** 我自己的 QQ 号：群里的 @ 只剩号码，得让它能认出「@的是我」 */
+  selfQq?: string;
+  /** 我叫什么（默认「凝」） */
+  selfName?: string;
+  /** 角色 → 内容：这个人说过什么、什么事是关于他的（person-graph 拼出来的卡） */
+  personCards?: Array<{ qqId: string; name: string; aliases: string[]; spoke: string[]; about: string[] }>;
+  /** 群情一行：这个群多少人、都有谁（人多时只给几个 + 提示调 group_members） */
+  groupRoster?: string;
 }): Array<{ role: "system" | "user" | "assistant"; content: string }> {
   const memoryBlock = input.memory.contextBlock.trim();
   const selfBlock = (input.selfText ?? "").trim();
@@ -162,6 +172,21 @@ export function buildChatPrompt(input: {
     );
   }
 
+  // 读心（read-mind）算好的结果：他这句话表面上在说什么、什么情绪、我听完什么反应。
+  // 只是背景——算这一步就是为了让它不用一边分析一边说话。缺字段就跳过，不影响别的段。
+  if (input.mind) {
+    const surface = String(input.mind.surface ?? "").trim();
+    const emotion = String(input.mind.emotion ?? "").trim();
+    const myReaction = String(input.mind.myReaction ?? "").trim();
+    if (surface.length > 0 || emotion.length > 0 || myReaction.length > 0) {
+      const tell = [surface ? `表面上：${surface}` : "", emotion ? `情绪：${emotion}` : ""].filter(Boolean).join("／");
+      parts.push("【他这句话】");
+      if (tell.length > 0) parts.push(tell);
+      if (myReaction.length > 0) parts.push(`【我听完】${myReaction}`);
+      parts.push("——这两段是给你的背景，不是要你说出来的。别复述，别分析自己。");
+    }
+  }
+
   parts.push(`现在跟你说话的是「${input.userName}」。上面每句话前面的名字，就是谁说的。`);
 
   if (input.uptime && input.uptime.length > 0) parts.push(`【我的状态】${input.uptime}`);
@@ -172,9 +197,12 @@ export function buildChatPrompt(input: {
       [
         "【这里是哪儿】",
         input.scene,
+        String(input.groupRoster ?? "").trim(),
         "- 谁说的都标了名字，别当成一个人连着说。",
         "- 群里一句话够了，别写长段；私聊可以多聊两句。",
-      ].join("\n"),
+      ]
+        .filter((s) => s.length > 0)
+        .join("\n"),
     );
   }
 
@@ -190,12 +218,48 @@ export function buildChatPrompt(input: {
     if (about.length > 0) parts.push("【关于他】", ...about);
   }
 
-  if (input.people && input.people.length > 0) {
-    const lines = input.people.slice(0, 10).map((p) => {
-      const alias = p.aliases.length > 0 ? `（也叫${p.aliases.join("、")}）` : "";
-      return p.qqId === String(input.peopleQq ?? "") ? `${p.qqId} = ${p.name}${alias}，就是现在跟你说话的人` : `${p.qqId} = ${p.name}${alias}`;
-    });
-    parts.push("【谁是谁】记忆里的人用 QQ 号写，对照如下：", ...lines, "你自己叫「凝」。昵称和 QQ 号指同一个人。");
+  const selfQq = String(input.selfQq ?? "").trim();
+  if ((input.people && input.people.length > 0) || selfQq.length > 0) {
+    // 角色 → 内容：谁说的挂在这人名下（来自 event_anchors.role = speaker / subject / mentioned）
+    const cards = new Map((input.personCards ?? []).map((c) => [String(c.qqId), c]));
+    const cardLines = (qqId: string, saidLabel = "他说过的", aboutLabel = "关于他的"): string[] => {
+      const card = cards.get(String(qqId));
+      if (!card) return [];
+      const out: string[] = [];
+      if (card.spoke.length > 0) out.push(`  ${saidLabel}：${card.spoke.map((s) => `「${s}」`).join("")}`);
+      if (card.about.length > 0) out.push(`  ${aboutLabel}：${card.about.map((s) => `「${s}」`).join("")}`);
+      return out;
+    };
+
+    const lines: string[] = [];
+    for (const p of (input.people ?? [])
+      // 没名字的别写成「10000004 = 」——那是噪声，等于没给对照
+      .filter((p) => String(p.name ?? "").trim().length > 0)
+      // 她自己由下面单独一行写，别在这儿再来一遍
+      .filter((p) => String(p.qqId) !== selfQq)
+      .slice(0, 10)) {
+      // 「QQ10000001」这种占位别名不是叫法，别塞进去
+      const real = (p.aliases ?? []).filter((a) => a.trim().length > 0 && !/^QQ\d+$/.test(a.trim()));
+      const alias = real.length > 0 ? `（也叫${real.join("、")}）` : "";
+      lines.push(
+        p.qqId === String(input.peopleQq ?? "")
+          ? `${p.qqId} = ${p.name}${alias}，就是现在跟你说话的人`
+          : `${p.qqId} = ${p.name}${alias}`,
+      );
+      lines.push(...cardLines(String(p.qqId)));
+    }
+    // 自己那一行必须有：群里的 @ 在文字里只剩一个号码，
+    // 没有这条它连「@的是我还是别人」都分不出来（2026-10-26 17:47 就答成了「@我干嘛」）。
+    if (selfQq.length > 0) {
+      const selfName = String(input.selfName ?? "").trim() || "凝";
+      lines.push(`${selfQq} = 你自己（${selfName}）。别人 @ 这个号，就是在跟你说话。`);
+      lines.push(...cardLines(selfQq, "你自己说过的", "关于你的"));
+    }
+    parts.push(
+      "【谁是谁】记忆里的人用 QQ 号写，对照如下：",
+      ...lines,
+      "消息里的 @123456 就是 @这个 QQ 号的人：对照上面看是谁，别当成在叫你。",
+    );
   }
 
 

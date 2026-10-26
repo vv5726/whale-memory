@@ -27,6 +27,9 @@ import {
  readSelf, ensureSelfSeed } from "../self.ts";
 import {
  recordOwnNote, recordThought } from "../notes.ts";
+import { ensureSelfPerson, personCardsFor } from "../person-graph.ts";
+import { rosterLine, saveGroupMembers } from "../group-roster.ts";
+import type { GroupMember } from "./onebot.ts";
 import {
  addAlias, ensurePerson, listPeople, resolvePerson } from "../people.ts";
 import {
@@ -86,6 +89,60 @@ export interface IncomingMessage {
   lastSleepAt: number | null;
   pendingTurns: number;
 }const HISTORY_LIMIT = 50;
+/**
+ * 取历史时把「当前这一句」剔掉。
+ *
+ * handle() 会先把当前消息 ingestTurns 写进 turns 表，再拿历史；
+ * 冷启动（内存里没历史）时 historyFor 从表里回填 50 条，于是当前这句
+ * 既进了 history、又作为 message 传了一次 —— 模型以为对方说了两遍。
+ * 表情包最明显：一个表情被读成「两个 524，同一个表情发了两遍」。
+ *
+ * 只剔最后一条且要一字不差：真正的连续重复（对方真的又发了一句一样的）
+ * 是前一条进了历史、后一条当当前消息，剔掉的仍然只有当前这一条。
+ */
+export function withoutCurrent(
+  hist: Array<{ role: "user" | "assistant"; text: string; speaker?: string }>,
+  text: string,
+): Array<{ role: "user" | "assistant"; text: string; speaker?: string }> {
+  const last = hist[hist.length - 1];
+  if (last && last.role === "user" && last.text === text) return hist.slice(0, -1);
+  return hist;
+}
+
+/**
+ * 「最近有没有动作」的全局时钟。
+ *
+ * 为什么不能挂在 service 实例上：聊天走的是 router 里那个 per-user service，
+ * 走神用的却是 bot.ts 另建的 autonomyService。两个实例各记各的，
+ * 走神那边永远看不到「他刚说完话」——2026-10-26 16:22 它就在回完话 1.6 秒后
+ * 自己开口催「排序脚本」。所以这份时间戳必须跨实例共享。
+ */
+let lastActivityMs = 0;
+
+export function touchActivity(at = Date.now()): void {
+  if (at > lastActivityMs) lastActivityMs = at;
+}
+
+/** 距离上一次「有动作」多少毫秒；从没动过就是 Infinity */
+export function activityAgeMs(): number {
+  return lastActivityMs > 0 ? Date.now() - lastActivityMs : Number.POSITIVE_INFINITY;
+}
+
+/** 活着的 service 实例（聊天一个、自主活动一个、每个群/人一个） */
+const liveServices = new Set<BotService>();
+
+/**
+ * 把各实例的对话历史缓存清掉，下次从 turns 表重读。
+ *
+ * 为什么需要：走神说的话是 `recordSaid` 直接写进 turns 表的，
+ * 但聊天用的那个 service 实例把历史缓存在内存里（historyFor 命中缓存就不再读库），
+ * 于是它永远看不见「我刚才说过这一句」——你顺着那句回它，它一脸懵。
+ * 2026-10-26 16:22 就是这样：它问「排序脚本那边…」，你回「你要什么排序脚本」，
+ * 它答「我什么时候要过这个」，因为它自己的那句话不在上下文里。
+ */
+export function dropHistoryCaches(): void {
+  for (const svc of liveServices) svc.forgetHistory();
+}
 /** * QQ �����˵ĺ����߼����ʹ�����޹ء� * * ����㣨OneBot WebSocket��ֻ���շ������С�������ô�á����ж϶������ * ������������ QQ Ҳ�ܰ�������·��ͨ�� */export class BotService {
   private db: DatabaseSync;
   private cfg: BotConfig;
@@ -97,6 +154,9 @@ export interface IncomingMessage {
  text: string;
  speaker?: string }>>();
   private lastMessageAt = Date.now();
+  /** 这个实例最后一次有动作的时间。注意它以前是**没声明**的，
+   *  busyRecently 里 Math.max(undefined, …) 会得到 NaN，于是永远返回 false。 */
+  private lastActivityAt = 0;
   private lastSleepDay = "";
   private tools: ToolRegistry | null;
   private opts: {
@@ -114,6 +174,14 @@ export interface IncomingMessage {
     } = {
 },  ) {
     this.opts = opts;
+    liveServices.add(this);
+    // 她自己也是这段人生里的一个人：people 里没有 10000003 之前，
+    // 她的 12 条发言、6 条自称（speaker_id=凝）都归不到人身上。
+    try {
+      ensureSelfPerson(this.db, String(this.cfg.selfId ?? ""), "凝");
+    } catch {
+      // 建不出来不影响回话
+    }
     this.cfg = cfg;
     this.memoryCfg = withOverrides(DEFAULT_CONFIG, {
       contextBudgetTokens: cfg.contextBudgetTokens,      extractor: cfg.useLlmExtractor ? "llm" : "heuristic",      llmBaseUrl: cfg.ollamaBaseUrl,      llmModel: cfg.ollamaModel,    });
@@ -281,7 +349,61 @@ export interface IncomingMessage {
     }    if (anchor.stale || (anchor.repeats ?? 0) >= 2) {
       lines.push(        `?? ��${anchor.name}�������������Ѿ���� ${anchor.repeats ?? 2} ���ˣ�����һ�鲻�����¶�����`,        "������α���ԭ�ش�ת����ȥ**��ȡ�µ�֪ʶ**������������ʲô�����ʱ��ˡ��ҵ��㻹��֪���ġ�",        "",      );
     }    lines.push(      "����û�˸���˵�������Լ���ĥ��",      "1. �ҵ�����Ū����ʲô / ������ʲô��",      "2. ����·�ܵ���ȥˢ���ݣ�Bվ/�������������ġ��������ֻ���һ��������£�",      "3. Ҫ��Ҫ����һ�¼��䣿��memory_tidy�����ŵĶԻ����ˡ����߾��ø���һ���ˣ����Լ�����˯һ����",      "4. ��û��ʲô�����ֵ�ü�����������û����ס�ģ���memory_save����һ����ǰ�Ǳ��������жϵġ�",      "5. ��û��©�ǣ���memory_recent �������ԭʼ�Ի��������ü�ȴû�ǵģ��� memory_save ���ϣ�",      "",      "������ھͲ飨���й��ߣ����������ھ�����",      "�����������������ʽ�ϸ��ճ����������У�",      "Ŀ�ģ���һ�仰��˵����Ҫʲô��",      ";������ֻ���ǣ����� / ���� / �� / ���ˣ�",      "��Ϣ����ֻ��;��=����ʱ���д��Ҫ����ȥ���Ǿ仰������������գ�",      "",      "���ʶԷ�ʲô��������Ҫ����æ����ѡ�����졹�������Լ����š�",      "�����ˡ�Ҳ���ԡ���û������ɵľ�ֱ˵����ա�",    );
-    return this.act(lines.join("\n"), loadTuning(this.cfg.dataDir).maxToolRounds);
+        // 刚聊过什么：不带这个，它会拿一个早就聊完、甚至刚被否掉的旧话题当「突然想起」。
+    // 2026-10-26 16:22 就是这样：它刚回完「哦，表情。」，1.6 秒后开口催「排序脚本」，
+    // 而那个话题是我们凌晨聊过、王鑫一直没来的旧账——说出来就像凭空冒出一件事。
+    try {
+      const recent = this.db
+        .prepare("SELECT role, text FROM turns ORDER BY seq DESC LIMIT 6")
+        .all() as Array<{ role: string; text: string }>;
+      const talked = recent
+        .reverse()
+        .map((r) => {
+          const said = String(r.text ?? "").replace(/\s+/g, " ").slice(0, 80);
+          return said.length > 0 ? `${r.role === "user" ? "他" : "我"}：${said}` : "";
+        })
+        .filter((s) => s.length > 0);
+      if (talked.length > 0) {
+        lines.push(
+          "【刚才在聊什么】",
+          ...talked,
+          "",
+          "上面这些是**刚聊过的**，不是你现在想起来的事。",
+          "想到的如果正是这里面在聊的、或者刚被他说过「没这回事」的，就不要发消息——",
+          "别催他、别假装他还欠你一个回答。真想说话，说点这轮聊天之外的新东西。",
+          "",
+        );
+      }
+    } catch {
+      // 读不到对话就算了，不影响走神
+    }
+
+        // ★ 静下来时想什么：主人在 2026-10-26 定的六问 + 三条途径。
+    //   原来那段提示词被写坏成了乱码（U+FFFD），模型拿到只是一堆符号，
+    //   所以它每次都滑到「没什么想做的」。这一段是重写的。
+    lines.push(
+      "",
+      "【静下来时，先想这几个问题】",
+      "1. 我有什么想知道的？",
+      "2. 我下一步要干什么？",
+      "3. 有没有什么想做的？",
+      "4. 怎么继续完善自己？",
+      "5. 要再整理一下记忆吗？（memory_tidy）",
+      "6. 聊天中我有哪点做的不好的，以后怎么改？",
+      "",
+      "想完再决定要不要做。要做的话，只能选这三种方式：",
+      "  一、自己做点什么——想清楚的写成手记（self_note）或存进知识库（kb_add）",
+      "  二、B 站——去搜、去看、去读字幕，学点新东西",
+      "  三、找人聊天——直接发消息给他",
+      "",
+      "只输出下面三行，不要别的：",
+      "目的：（一句话，说清你要什么）",
+      "途径：（只能填：做 / 内容 / 聊天 / 算了）",
+      "消息：（只有途径=聊天时才填你要发的那句话；其他留空）",
+      "",
+    );
+
+return this.act(lines.join("\n"), loadTuning(this.cfg.dataDir).maxToolRounds);
   }  /**   * ����ֻ����ڲ��ڣ����Ų�ε������ߡ�   *   * ֮ǰֻ������ʱ�ж�һ�Σ���������Զ��� USB -> �ֻ�����ȫû�ˣ�   * ���Ҳ�������������������Լ���Ӧ��   */  refreshPhoneTools(): void {
     if (!this.tools) return;
     try {
@@ -289,16 +411,18 @@ export interface IncomingMessage {
       if (attached) {
         if (!this.phoneAttached) {
           this.phoneAttached = true;
-          console.log("[tools] �ֻ������ˣ��ֻ������ѹ���");
+          console.log("[日志]");
         }        return;
       }      if (this.phoneAttached) {
         const removed = detachPhoneTools(this.tools);
         this.phoneAttached = false;
-        if (removed.length > 0) console.log(`[tools] �ֻ����ˣ�ժ�� ${removed.length} ���ֻ�����`);
+        if (removed.length > 0) console.log("（日志）");
       }    } catch (err) {
-      console.warn("[tools] ����ֻ�ʱ����:", err instanceof Error ? err.message : String(err));
+      console.warn("[日志]", err instanceof Error ? err.message : String(err));
     }  }  /**   * �ղ��ǲ����ڸ��¡�   *   * ���񲻸�������æ��ʱ�����������������ֻ������ڻػ���   * ������һ���»�û����������ʱ�����קȥ�����£����ڴ�ϡ�   */  busyRecently(withinMs = 90_000): boolean {
-    return this.lastActivityAt > 0 && Date.now() - this.lastActivityAt < withinMs;
+    // 看全局：聊天和走神是两个 service 实例，只看自己那个等于瞎
+    const last = Math.max(this.lastActivityAt || 0, lastActivityMs);
+    return last > 0 && Date.now() - last < withinMs;
   }  /** ������׼ 1234 / �� 1234�� */  resolveApproval(shortId: string, approve: boolean): Approval | null {
     return resolveApproval(this.db, shortId, approve);
   }  /** ֱ�ӵ�һ�����ߣ���׼֮��ִ���ã� */  async callTool(name: string, args: Record<string, unknown>): Promise<{
@@ -306,7 +430,14 @@ export interface IncomingMessage {
  text: string } | null> {
     if (!this.tools) return null;
     return this.tools.call(name, args);
-  }  /**   * ȡ�Ի���ʷ���ڴ���û�оʹ����ݿ����̻�����   *   * ֮ǰ��ʷֻ�����ڴ棺һ�����Ϳգ�����������ͷ��������ȫ��֪����˵ʲô   * ����Ϊʲô�뵥��������һ�ݡ�������˵������ָ˭��������   * �Ի������ʹ��� turns �û���ɲ��á�   */  private historyFor(sessionId: string): Array<{
+  }  /** 把一份群名册落库（OneBot get_group_member_list 的结果，整群覆盖） */
+  syncGroupRoster(groupId: number | string, members: GroupMember[]): { group: string; count: number } {
+    return saveGroupMembers(this.db, groupId, members);
+  }  /** 把这份对话历史缓存丢掉，下次 historyFor 从 turns 表重读 */
+  forgetHistory(): void {
+    this.history.clear();
+  }  /**
+   * ȡ�Ի���ʷ���ڴ���û�оʹ����ݿ����̻�����   *   * ֮ǰ��ʷֻ�����ڴ棺һ�����Ϳգ�����������ͷ��������ȫ��֪����˵ʲô   * ����Ϊʲô�뵥��������һ�ݡ�������˵������ָ˭��������   * �Ի������ʹ��� turns �û���ɲ��á�   */  private historyFor(sessionId: string): Array<{
  role: "user" | "assistant";
  text: string;
  speaker?: string }> {
@@ -327,7 +458,7 @@ export interface IncomingMessage {
       }      const restored = rows        .reverse()        .map((r) => ({
           role: (r.role === "user" ? "user" : "assistant") as "user" | "assistant",          text: String(r.text ?? ""),          speaker: r.role === "user" ? nameOf.get(String(r.speaker_id ?? "")) ?? "" : "",        }))        .filter((m) => m.text.length > 0);
       this.history.set(sessionId, restored);
-      console.log(`[ctx] �ӿ���ָ��� ${restored.length} ���Ի�������`);
+      console.log("（日志）");
       return restored;
     } catch {
       return [];
@@ -339,7 +470,10 @@ export interface IncomingMessage {
  day: dayKey(Date.now()), role: "assistant", text: t, speakerId: String(this.cfg.selfId) }]);
     } catch {
       // �ǲ��ϲ�Ӱ��˵��
-    }  }  /**   * ��פ���䣺��أ�feedback���͡�����˭����user����   *   * �����಻�ܿ�������������û����������˵��Ҫ���ޡ���������Ĳ�ȥ���ޡ�   */  alwaysOnMemories(limit = 8, speakerId = ""): Array<{
+    }
+    // 自己说的话刚落进 turns 表：把各实例的历史缓存清掉，
+    // 否则聊天那边还拿着一份没有这句的旧缓存（走神说的话它就永远看不见）。
+    dropHistoryCaches();  }  /**   * ��פ���䣺��أ�feedback���͡�����˭����user����   *   * �����಻�ܿ�������������û����������˵��Ҫ���ޡ���������Ĳ�ȥ���ޡ�   */  alwaysOnMemories(limit = 8, speakerId = ""): Array<{
  kind: string;
  text: string }> {
     try {
@@ -356,8 +490,8 @@ export interface IncomingMessage {
  kind: r.kind, text: String(r.title || r.detail).slice(0, 90) }));
     } catch {
       return [];
-    }  }  /** �ش�ͷ���������������vv�������ֱ�ǩ��ȥ����������������ʷ��ѧ���ĸ�ʽ */  private stripNamePrefix(text: string): string {
-    return String(text ?? "").replace(/^[^\s��:]{1,12}[��:]\s*/, (m) => (/^(��|vv|��|�Է�|��)[��:]\s*$/.test(m) ? "" : m));
+    }  }  /** �ش�ͷ���������������对方�������ֱ�ǩ��ȥ����������������ʷ��ѧ���ĸ�ʽ */  private stripNamePrefix(text: string): string {
+    return String(text ?? "").replace(/^[^\s��:]{1,12}[��:]\s*/, (m) => (/^(��|��|�Է�|��)[��:]\s*$/.test(m) ? "" : m));
   }  /** ѧһ���´ʣ������ڻ�����ͷ�������´������ʹ����� */  learnTerm(term: string, meaning: string): boolean {
     try {
       return learnTerm(this.cfg.dataDir, term, meaning, "ѧ����");
@@ -404,7 +538,7 @@ export interface IncomingMessage {
     try {
       recordOwnNote(this.db, text, Date.now());
     } catch (err) {
-      console.warn("[bot] �Ǳʼ�ʧ��:", err instanceof Error ? err.message : String(err));
+      console.warn("[日志]", err instanceof Error ? err.message : String(err));
     }  }  /** �ѹ��߱�����ȥ���Ķ�ԱҪ��ͬһ��������ֻȡ������һ���֣� */  toolRegistry(): ToolRegistry | null {
     return this.tools;
   }  /** �ش����������ʱ����Щ�ı�Ҳ�㡸�����ݡ�����Դ */  private knownText(): string {
@@ -438,8 +572,9 @@ export interface IncomingMessage {
     const roundsLimit = this.cfg.autonomyDailyRounds;
     return {
       videoLeft: Math.max(0, videoLimit - quotaUsed(this.db, "video")),      videoLimit,      writeLeft: Math.max(0, writeLimit - quotaUsed(this.db, "write")),      writeLimit,      roundsLeft: Math.max(0, roundsLimit - quotaUsed(this.db, "autonomy")),      roundsLimit,    };
-  }  /**   * �������һ�֣�û����˵�������Լ�������ʲô��   *   * �� handle �����𣺲�����ԭʼ�Ի����������þ����أ��������ڱ��ʣ���   * ֻ�ѡ��Լ������Լ��Ķ�Ƚ�������   */  async act(instruction: string, maxRounds = 8): Promise<string> {
+  }  /**   * �������һ�֣�û����˵�������Լ�������ʲô��   *   * �� handle �����𣺲�����ԭʼ�Ի����������þ����أ��������ڱ��ʣ���   * ֻ�ѡ��Լ������Լ��Ķ�Ƚ�������   */  async act(instruction: string, maxRounds = 0): Promise<string> {
     this.lastActivityAt = Date.now();
+    touchActivity(this.lastActivityAt);
     const budget = this.autonomyBudget();
     const memory = recall(this.db, this.memoryCfg, instruction.slice(0, 60), {
  sessionId: "autonomy" });
@@ -476,10 +611,43 @@ export interface IncomingMessage {
         const c = String(evt?.sender?.card ?? "").trim();
         const n = String(evt?.sender?.nickname ?? "").trim();
         return c || n || String(evt?.userName ?? evt?.userId ?? "");
-      })(),      currentSpeakerQq: String(evt?.userId ?? ""),    };
+      })(),      currentSpeakerQq: String(evt?.userId ?? ""),
+      // 谁是谁 + 我自己的号：群里的 @ 在文字里只剩一个号码，
+      // 不给她这张对照表，它连「@的是我还是别人」都分不出来（答成「@我干嘛」）。
+      people: (() => {
+        try {
+          return listPeople(this.db);
+        } catch {
+          return [];
+        }
+      })(),      peopleQq: String(evt?.userId ?? ""),      selfQq: String((evt as { selfId?: number } | undefined)?.selfId ?? this.cfg.selfId ?? ""),
+      // 群里都有谁：名册一行（人多时只给几个名字，要全部去调 group_members）
+      groupRoster: (() => {
+        try {
+          if (!evt?.isGroup || evt.groupId === undefined) return "";
+          return rosterLine(this.db, evt.groupId, listPeople(this.db).map((p) => p.name));
+        } catch {
+          return "";
+        }
+      })(),
+      // 角色 → 内容：这个人和被 @ 的人「说过什么、什么事关于他」，
+      // 挂在【谁是谁】每行下面，光有号码→名字还不够它理解上下文。
+      personCards: personCardsFor(this.db, (() => {
+        const raw = String((evt as { text?: string } | undefined)?.text ?? "");
+        const ids: string[] = [
+          String(evt?.userId ?? ""),
+          // 她自己也带一张：至少知道自己刚说过什么，别前后打架
+          String((evt as { selfId?: number } | undefined)?.selfId ?? this.cfg.selfId ?? ""),
+        ];
+        for (const m of raw.matchAll(/\[CQ:at,qq=(\d+)/g)) ids.push(m[1]!);
+        for (const m of raw.matchAll(/@(\d{5,})/g)) ids.push(m[1]!);
+        return ids;
+      })(), 2),
+      // 读心结果（router 挂上来的），没有就是 null
+      mind: (evt as { mind?: { surface: string; emotion: string; myReaction: string } | null } | undefined)?.mind ?? null,    };
   }  /**   * ͳһ���ڣ��й��߾��߹��ߵ��ã�û�о�����ͨ��ȫ��   *   * ���ߵ���ֻ�� DeepSeek ���� OpenAI ���ݽӿ��Ͽ��ã�   * ���� Ollama ֱ������ͨ��ȫ����û�� function calling����   */  private async respond(    messages: Array<{
  role: "system" | "user" | "assistant";
- content: string }>,    maxRounds = 8,  ): Promise<{
+ content: string }>,    maxRounds = 0,  ): Promise<{
  text: string;
  toolText: string }> {
     // Ǯ��Ψһ���������Ķ�������Ԥ�����Ͳ���ģ����
@@ -510,7 +678,7 @@ export interface IncomingMessage {
           return listPeople(this.db);
         } catch {
           return [];
-        }      })(),      peopleQq: "",      currentSpeakerQq: "",      currentSpeaker: (() => {
+        }      })(),      peopleQq: "",      selfQq: String(this.cfg.selfId ?? ""),      currentSpeakerQq: "",      currentSpeaker: (() => {
         const s = (evt as {
  sender?: {
  card?: string;
@@ -541,13 +709,14 @@ export interface IncomingMessage {
     let reply = this.stripNamePrefix(out.text);
     if (weak && this.asksAboutPast(text) && looksFabricated(reply, `${memory.contextBlock}\n${out.toolText}\n${this.knownText()}`)) {
       if (out.toolText.length > 0) {
-        console.warn("[bot] �й��߽��֧�ţ����Գ��ּ�����û�еľ�����ʵ�����е���һ��");
+        console.warn("[日志]");
       } else {
         reply = `${noMemoryReply()}��ԭ�ش�δ���صľ�����ʵ�������£�`;
       }    }    return {
  reply, memory: memory.contextBlock };
   }  /** һ����Ϣ������������ �� ��һ�� �� ��һ�� */  async handle(evt: IncomingMessage): Promise<string | null> {
     this.lastActivityAt = Date.now();
+    touchActivity(this.lastActivityAt);
     // ˭��˵����QQ �������ݣ��ǳ��ǵȼ۳ƺ�
     try {
       // �����������ˣ�Ⱥ��Ƭ �� QQ�ǳ� �� QQ<��>
@@ -593,23 +762,26 @@ export interface IncomingMessage {
       ingestTurns(this.db, [{
  day: dayKey(Date.now()), role: "user", text, speakerId: String(evt.userId) }]);
     } catch (err) {
-      console.error("[bot] ��¼�Ի�ʧ��:", err);
+      console.error("[日志]", err);
     }    // 2. ��һ�£��ٻؼ���
     let memory: RecallResult;
+    // 检索用的查询串必须提到 try 外面：重试那一步（第一轮回得太短）也要用它。
+    // 之前声明在 try 里，等于给「短回复」埋了一颗 ReferenceError，一炸就退成兜底句。
+    let recallQuery = text;
     try {
       // ��������ֻ����ǰ��һ�䣺���Ǽ�����ô���ˡ������ء����֣�����һ��ʲô���Ѳ�����    // ��������ֵ���ǰ�棬�ü���֪�����Ǽ��¡�ָ����ʲô��
-    const ctxTail = this.historyFor(evt.sessionId)      .slice(-2)      .map((h) => h.text)      .join(" ")      .slice(-120);
-    const recallQuery = `${ctxTail} ${text}`.trim();
+    const ctxTail = withoutCurrent(this.historyFor(evt.sessionId), text)      .slice(-2)      .map((h) => h.text)      .join(" ")      .slice(-120);
+    recallQuery = `${ctxTail} ${text}`.trim();
     memory = recall(this.db, this.memoryCfg, recallQuery, {
  sessionId: evt.sessionId, speakerId: String(evt.userId) });
     } catch (err) {
-      console.error("[bot] �ٻ�ʧ��:", err);
+      console.error("[日志]", err);
       this.counters.failed += 1;
       return fallbackReply();
     }    // 3. ��һ��    // ֻ�С����ʹ�ȥ���¡��Ű����������䣻��ָ����ġ��ʹ۵㶼����
     const weak = this.isWeak(memory) && this.asksAboutPast(text);
     const messages = buildChatPrompt({
-      memory,      userName: evt.userName,      history: this.historyFor(evt.sessionId),      message: text,      memoryWeak: weak,      stats: this.liveStats(),      ...this.promptExtras(evt),    });
+      memory,      userName: evt.userName,      history: withoutCurrent(this.historyFor(evt.sessionId), text),      message: text,      memoryWeak: weak,      stats: this.liveStats(),      ...this.promptExtras(evt),    });
     let reply: string;
     let toolText = "";
     try {
@@ -625,7 +797,7 @@ export interface IncomingMessage {
         const retry = buildChatPrompt({
           memory: wider,
           userName: evt.userName,
-          history: this.historyFor(evt.sessionId),
+          history: withoutCurrent(this.historyFor(evt.sessionId), text),
           message: text,
           memoryWeak: weak,
           stats: this.liveStats(),
@@ -641,7 +813,7 @@ export interface IncomingMessage {
       toolText = out.toolText;
       if (reply.length === 0) throw new Error("�ջظ�");
     } catch (err) {
-      console.error("[bot] ���ɻظ�ʧ��:", err);
+      console.error("[日志]", err);
       this.counters.failed += 1;
       return fallbackReply();
     }    // 3.5 �º�У�飺û�м���֧�ŵĻش�����־�����ʵ���͵����촦��    // ���߷��ص�������Ϸ���Դ���й��߽��ʱ������ֻ��һ��    // ��ͼ����·���� QQ ��û�á���ֱ�ӷ���ȥ
@@ -651,9 +823,9 @@ export interface IncomingMessage {
         try {
           await this.opts.onImage(shot[2]!);
         } catch (err) {
-          console.warn("[bot] ��ͼʧ��:", err instanceof Error ? err.message : String(err));
+          console.warn("[日志]", err instanceof Error ? err.message : String(err));
         }      }    }    if (weak && this.asksAboutPast(text) && looksFabricated(reply, `${memory.contextBlock}\n${toolText}\n${this.knownText()}`)) {
-      console.warn(`[bot] ����һ��û�м���֧�ŵĻش�${reply.slice(0, 60)}`);
+      console.warn("（日志）");
       this.counters.failed += 1;
       reply = noMemoryReply();
     }    // 4. ��ס��һ�֣�ֻ������������������������ͣ�
@@ -668,9 +840,10 @@ export interface IncomingMessage {
       ingestTurns(this.db, [{
  day: dayKey(Date.now()), role: "assistant", text: reply }]);
     } catch (err) {
-      console.error("[bot] ��¼�ظ�ʧ��:", err);
-    }    console.log(`[��Ϣ] ${evt.userName}: ${text.slice(0, 60)}`);
-    console.log(`[�ظ�] ${reply.slice(0, 80)}`);
+      console.error("[日志]", err);
+    }    console.log(`[消息] ${evt.userName}: ${text.slice(0, 60)}`);
+    console.log(`[回复] ${reply.slice(0, 80)}`);
+    touchActivity(); // 回完话也算「刚动过」，走神别马上插进来
     this.counters.replied += 1;
     return reply;
   }  /** �ֶ�˯һ�������Ժ͡������������ã������������ж� */  async sleepNow(now = Date.now()): Promise<SleepStats | null> {
@@ -715,10 +888,10 @@ export interface IncomingMessage {
       this.counters.sleeps += 1;
       this.counters.lastSleepAt = now;
       this.lastSleepDay = today;
-      console.log(        `[bot] ˯����ɣ�${stats.eventsExtracted} ���¼���ռ�� ${stats.totalTokens} token����ȡ�� ${this.memoryCfg.extractor}`,      );
+      console.log(        "（日志）",      );
       return stats;
     } catch (err) {
-      console.error("[bot] ˯��ʧ��:", err);
+      console.error("[日志]", err);
       return null;
     } finally {
       this.sleeping = false;
@@ -728,6 +901,7 @@ export interface IncomingMessage {
     }, intervalMs);
     return () => clearInterval(timer);
   }  close(): void {
+    liveServices.delete(this);
     this.db.close();
   }}/** �����þ����ñ��� Ollama ���� DeepSeek API */export function createChatAdapter(cfg: BotConfig): LlmAdapter {
   if (cfg.provider === "deepseek") {

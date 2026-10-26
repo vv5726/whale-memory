@@ -1,4 +1,4 @@
-﻿import type { ToolDefinition, ToolRegistry } from "./registry.ts";
+import type { ToolDefinition, ToolRegistry } from "./registry.ts";
 import type { Tuning } from "../tuning.ts";
 
 /** 让她自己调「回完话要不要回头看」的概率 */
@@ -20,7 +20,7 @@ export function registerTuneTool(
         groupSpeakThreshold: { type: "number", description: "群里说话的相关性门槛 0-1：到了才回。调高更安静" },
         silentCheckMinutes: { type: "integer", description: "没人回你时，多少分钟后判断一次" },
         silentGiveUpMinutes: { type: "integer", description: "多少分钟后默认对方在忙、不再等" },
-        maxToolRounds: { type: "integer", description: "一次最多调几轮工具（3-50）" },
+        maxToolRounds: { type: "integer", description: "一次最多调几轮工具；0 = 不限（默认），只有想硬刹车时才设正数" },
         v3MinValue: { type: "number", description: "抽取记忆的价值门槛 0-10：调高＝记得更少更准，调低＝记得更多更杂" },
         v3MaxEvents: { type: "integer", description: "一批对话最多记几条（1-30）" },
       },

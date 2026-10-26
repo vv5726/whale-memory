@@ -1,4 +1,4 @@
-﻿import { recordUsage } from "../cost.ts";
+import { recordUsage } from "../cost.ts";
 import { coerceArgs, type ToolRegistry } from "../tools/registry.ts";
 
 export interface ToolChatConfig {
@@ -27,15 +27,19 @@ export interface ToolChatResult {
  * 带工具调用的一轮对话。
  *
  * 流程：发给模型 → 它要调工具 → 我们执行 → 结果塞回去 → 再问一次。
- * 最多 4 轮，防止它在某个工具上死循环。
  *
- * 只支持 OpenAI 兼容接口；本地 Ollama 没有这套就走普通补全。
+ * **轮次默认不限**（maxRounds <= 0）：跑到模型自己不再调工具为止。
+ * 以前的 4 轮上限是怕它死循环，但它常常是真的还有事要办——
+ * 「开个 App、读一屏」就自动收尾，活干到一半。真正的刹车是每日预算和单次超时。
+ * 只在「不限」模式下留一个很高的硬顶（HARD_ROUND_CAP）兜住真的死循环。
  */
+const HARD_ROUND_CAP = 999;
+
 export async function runChatWithTools(
   cfg: ToolChatConfig,
   messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
   registry: ToolRegistry,
-  maxRounds = 4,
+  maxRounds = 0,
 ): Promise<ToolChatResult> {
   const history: OpenAiMessage[] = messages.map((m) => ({ role: m.role, content: m.content }));
   // 累计这一整轮的用量，交给记账
@@ -43,8 +47,10 @@ export async function runChatWithTools(
   let completionTokens = 0;
   const calls: ToolChatResult["calls"] = [];
   const tools = registry.schema();
+  const unlimited = !(maxRounds > 0);
+  const limit = unlimited ? HARD_ROUND_CAP : Math.max(1, Math.floor(maxRounds));
 
-  for (let round = 0; round < maxRounds; round += 1) {
+  for (let round = 0; round < limit; round += 1) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), cfg.timeoutMs ?? 60_000);
     let payload: {

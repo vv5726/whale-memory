@@ -6,6 +6,7 @@ import { rowToEvent, tierTotals } from "./db.ts";
 import { expirePins, extractEvents } from "./extract.ts";
 import { extractDayWithLlm } from "./llm/extract.ts";
 import { createAdapter, type LlmAdapter } from "./llm/adapter.ts";
+import { linkPeopleToAnchors, syncSpeakerRoles } from "./person-graph.ts";
 import { dominantMood } from "./recall.ts";
 import { dayKey, newId, periodLabel } from "./util.ts";
 
@@ -99,6 +100,19 @@ export function sleep(db: DatabaseSync, cfg: MemoryConfig, opts: SleepOptions = 
           WHERE (speaker_id IS NULL OR speaker_id = '')
             AND (SELECT COUNT(DISTINCT t2.speaker_id) FROM turns t2 WHERE t2.day = events.day AND t2.speaker_id <> '') = 1
         `);
+        // ③ 人 ↔ 锚点 真正绑好，并把「谁说的」写成 role=speaker。
+        //    以前 role 全是 mentioned（4949 条、speaker 0 条），等于「知道提过谁、
+        //    不知道谁说的」；绑好之后提示词才能把内容挂到人下面。幂等，每次睡完都跑。
+        try {
+          const linked = linkPeopleToAnchors(db);
+          const roles = syncSpeakerRoles(db);
+          console.log(
+            `[sleep] 人的绑定：${linked.people} 人，别名 +${linked.aliasAdded}，修悬空 ${linked.fixed}；` +
+              `说话人角色 ${roles.links} 条（代词靠证据倒回 ${roles.recovered}、仍归属不了 ${roles.pronouns}、认不出 ${roles.unresolved}）`,
+          );
+        } catch (err) {
+          console.warn("[sleep] 人的绑定失败：", err instanceof Error ? err.message : String(err));
+        }
       },
     },
     {
@@ -266,9 +280,9 @@ export async function sleepAsync(
         const row = db.prepare("SELECT display_name, qq_id FROM people ORDER BY last_seen DESC LIMIT 1").get() as
           | { display_name?: string; qq_id?: string }
           | undefined;
-        return { user: row?.qq_id ? `${row.display_name || "vv"}（${row.qq_id}）` : "vv", assistant: "凝" };
+        return { user: row?.qq_id ? `${row.display_name || "对方"}（${row.qq_id}）` : "对方", assistant: "凝" };
       } catch {
-        return { user: "对方", assistant: "我" };
+        return { user: "对方", assistant: "凝" };
       }
     })();
 

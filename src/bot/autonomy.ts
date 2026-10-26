@@ -1,4 +1,4 @@
-﻿import type { BotConfig } from "./config.ts";
+import type { BotConfig } from "./config.ts";
 import { BotService } from "./service.ts";
 import { ReaderAgent } from "./reader.ts";
 import { appendJournal } from "../tools/journal.ts";
@@ -150,6 +150,7 @@ export class AutonomyLoop {
       "",
       "只有一件事别做：**别花钱**。",
       "不点购买、不充值、不打赏、不开会员——因为那花的是真钱，退不回来。",
+      "另外**不看短视频**：那个不算放松，是它替你挑东西。手机上别的都能玩。",
       "其他都可以试。玩坏了的东西可以再装回来。",
       "",
 
@@ -180,7 +181,7 @@ export class AutonomyLoop {
       // 有手机的时候就偶尔让它去玩一会儿，而不是一直刷 B 站
       const phoneTools = (this.service.toolRegistry()?.names() ?? []).filter((n) => n.startsWith("phone_"));
       if (this.cfg.phonePlayEnabled && phoneTools.length > 0 && Math.random() < this.cfg.phonePlayChance) {
-        const played = await this.service.act(this.buildPlayPrompt(), 25);
+        const played = await this.service.act(this.buildPlayPrompt());
         if (played.trim().length > 0) {
           this.service.recordNote(`玩手机：${played.trim()}`);
           appendJournal(
@@ -308,6 +309,8 @@ export class AutonomyLoop {
    * 人不会那样，人的念头是散着来的。
    */
   startSpeaking(minMinutes = 1, maxMinutes = 20): () => void {
+    // speakUp 已停用：主动说话只从走神出（想什么说什么，别再来一套）
+    return () => {};
     const low = Math.max(0.5, Math.min(minMinutes, maxMinutes));
     const high = Math.max(low + 0.5, maxMinutes);
     let stopped = false;
@@ -348,6 +351,19 @@ export class AutonomyLoop {
     const cfg = this.cfg;
     if (!cfg.thinkEnabled) return { thought: false, reason: "走神关着" };
     if (this.busy) return { thought: false, reason: "上一轮还没结束" };
+
+    // 有人刚说话：不走神。
+    // 2026-10-26 16:22 那次就是它刚回完「哦，表情。」1.6 秒后自己开口催「排序脚本」。
+    // 当时的闸门 busyRecently() 看的是本实例的 lastActivityAt，而聊天走的是另一个
+    // service 实例，等于完全看不见——现在时间戳改成了全局共享的。
+    // thinkIdleSeconds 以前只打在启动日志里，从没真的判过，现在拿它当「安静多久才算闲」。
+    const quietMs = Math.max(0, cfg.thinkIdleSeconds) * 1000;
+    if (quietMs > 0 && this.lastUserMessageAt > 0) {
+      const since = Date.now() - this.lastUserMessageAt;
+      if (since < quietMs) {
+        return { thought: false, reason: `他 ${Math.round(since / 1000)} 秒前刚说过话，先不走神` };
+      }
+    }
 
     // 正在干事 / 刚干完事，就别把它拽去走神。
     // 走神是「闲下来才会想起一件事」，不是「干活干到一半突然分心」。

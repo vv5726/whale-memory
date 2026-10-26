@@ -158,6 +158,15 @@ export class OneBotClient {
   onDisconnect?: () => void;
   onReconnect?: () => void;
 
+  /**
+   * 群成员名册（OneBot 11：get_group_member_list）。
+   * 有了它它才知道群里除了说过话的那几个人还有谁。
+   */
+  async getGroupMemberList(groupId: number): Promise<GroupMember[]> {
+    const res = await this.request("get_group_member_list", { group_id: groupId }, 20_000);
+    return parseMemberList(res.data);
+  }
+
   private send(action: Record<string, unknown>): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       console.warn("[onebot] 还没连上，消息没发出去");
@@ -240,6 +249,32 @@ export class OneBotClient {
     this.ws?.close();
     this.ws = null;
   }
+}
+
+/** OneBot 群成员 → 我们要的形状（可单独测） */
+export interface GroupMember {
+  qqId: string;
+  /** 群名片（优先） */
+  card: string;
+  nickname: string;
+  role: string;
+}
+
+export function parseMemberList(data: unknown): GroupMember[] {
+  if (!Array.isArray(data)) return [];
+  const out: GroupMember[] = [];
+  for (const raw of data) {
+    const m = raw as Record<string, unknown>;
+    const qqId = String(m.user_id ?? m.qq ?? "").trim();
+    if (!/^\d{3,}$/.test(qqId)) continue;
+    out.push({
+      qqId,
+      card: String(m.card ?? "").trim(),
+      nickname: String(m.nickname ?? "").trim(),
+      role: String(m.role ?? "member"),
+    });
+  }
+  return out;
 }
 
 /** OneBot 消息段 → 纯文本（去掉 @、图片等非文本段） */

@@ -1,6 +1,7 @@
 ﻿import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { BotService } from "./service.ts";
+import { readMind } from "../read-mind.ts";
 import type { BotConfig } from "./config.ts";
 
 type ServiceOpts = NonNullable<ConstructorParameters<typeof BotService>[1]>;
@@ -75,7 +76,16 @@ export class BotRouter {
 
     // 本机只有一个 Ollama 实例，多人同时说话会互相抢显存、谁都慢。
     // 这里排个队：一次只生成一条，后面的人等前面说完。
-    const task = this.chain.then(() => this.serviceFor(evt.userId).handle(evt as never));
+    // 回话之前先读心：他的潜台词、情绪、我听完的反应。
+    // 放在 router 这一层，是因为它拿得到原话和历史，又不用改 service 的结构。
+    const task = (async () => {
+      const svc = this.serviceFor(evt.userId);
+      const text = String((evt as { text?: string }).text ?? "");
+      const mind = await readMind(this.cfg.dataDir, text, svc.historyFor(String((evt as { sessionId?: string }).sessionId ?? "")))
+        .catch(() => null);
+      (evt as { mind?: unknown }).mind = mind;
+      return svc.handle(evt as never);
+    })();
     this.chain = task.then(
       () => undefined,
       () => undefined,
