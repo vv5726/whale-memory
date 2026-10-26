@@ -15,7 +15,7 @@
 import { join } from "node:path";
 import { BotService } from "./bot/service.ts";
 import { BotRouter } from "./bot/router.ts";
-import { setupFileLogging, startLogServer } from "./bot/logview.ts";
+import { setupFileLogging, startLogServer, startLogTruncation } from "./bot/logview.ts";
 import { ensureSelfSeed } from "./self.ts";
 import { AutonomyLoop } from "./bot/autonomy.ts";
 import { describeUptime, markBoot, markDown, markReconnect } from "./uptime.ts";
@@ -180,6 +180,9 @@ async function main(): Promise<void> {
 
   // ── 日志：文件 + 网页 ──
   const logPath = setupFileLogging(join(cfg.dataDir, "logs"));
+  // 每小时（整点）清空一次：只留最近一小时，文件不会无限长，
+  // read_log / 日志网页就不用每次读几十 MB 的老日志。
+  const stopLogTruncation = startLogTruncation(logPath);
   if (cfg.logPort > 0) {
     startLogServer(cfg.logPort, logPath);
     console.log(`[log] 日志网页：http://127.0.0.1:${cfg.logPort}`);
@@ -262,28 +265,30 @@ async function main(): Promise<void> {
   const stopThinking = cfg.thinkEnabled ? loop.startThinking(1.5, 3.5) : () => undefined;
 
   // ── 群名册 ──
-  // 它在群里该知道都有谁，而不是只认识开口说过话的那几个。
-  // 启动后拉一次，之后每 30 分钟刷新（有人进群/退群、改群名片都能跟上）。
-  const syncRosters = async (): Promise<void> => {
+  // 只学一次：哪个群还没有名册就拉一次存进库，之后不再后台轮询——
+  // 名册不是实时数据，没人问就不需要，日志里更不该每半小时刷一行。
+  // 要最新的（有人进群/退群）让它自己调 group_members({action:"sync"})。
+  const learnRostersOnce = async (): Promise<void> => {
     const c = client;
     if (!c) return;
+    const learned: string[] = [];
     for (const gid of cfg.allowGroups) {
+      if (autonomyService.hasRoster(gid)) continue;
       try {
         const members = await c.getGroupMemberList(gid);
         if (members.length === 0) continue;
         const r = autonomyService.syncGroupRoster(gid, members);
-        console.log(`[roster] 群 ${r.group} 名册 ${r.count} 人`);
+        learned.push(`群 ${r.group} ${r.count} 人`);
       } catch (err) {
         console.warn(`[roster] 群 ${gid} 拉名册失败：${err instanceof Error ? err.message : String(err)}`);
       }
     }
+    if (learned.length > 0) console.log(`[roster] 学会名册：${learned.join("，")}（以后不再重复拉）`);
   };
-  const rosterTimer = setTimeout(() => void syncRosters(), 5_000);
-  const rosterInterval = setInterval(() => void syncRosters(), 30 * 60_000);
-  const stopRosters = (): void => {
-    clearTimeout(rosterTimer);
-    clearInterval(rosterInterval);
-  };
+  const rosterTimer = setTimeout(() => void learnRostersOnce(), 5_000);
+  // 工具里要现拉时走这个出口
+  autonomyService.setRosterSource((gid) => client?.getGroupMemberList(gid) ?? Promise.resolve([]));
+  const stopRosters = (): void => clearTimeout(rosterTimer);
 
   console.log(`[think] 安静 ${cfg.thinkIdleSeconds} 秒后，我可能会忽然想起一件事`);
   console.log(
@@ -324,6 +329,7 @@ async function main(): Promise<void> {
     stopSpeaking();
     stopThinking();
     stopRosters();
+    stopLogTruncation();
     autonomyService.close();
     client?.close();
     router.close();

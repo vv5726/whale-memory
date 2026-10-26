@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, existsSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 
@@ -44,6 +44,43 @@ export function setupFileLogging(dir: string): string {
   };
 
   return path;
+}
+
+/**
+ * 每小时把日志清空一次。
+ *
+ * 为什么不做「按大小切 + 留 N 份」：这是给一个后台跑的陪伴机器人用的，
+ * 谁也不会去翻前天的日志，但文件只增不减会让 read_log / 日志网页
+ * 每次都要读全文（Node 单线程，读 50MB 会把回话卡住）。
+ * 直接清空最省事：最多留一小时，够看「它刚才为什么那么答」。
+ *
+ * 按整点对齐清（不是每隔 60 分钟），这样「几点的事」对得上。
+ */
+export function startLogTruncation(path: string, everyMs = 3_600_000): () => void {
+  const msToNext = (): number => {
+    const next = Math.ceil((Date.now() + 1) / everyMs) * everyMs;
+    return Math.max(1_000, next - Date.now());
+  };
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let stopped = false;
+
+  const tick = (): void => {
+    if (stopped) return;
+    try {
+      writeFileSync(path, "", "utf8");
+      console.log(`[log] 整点清空日志（${new Date().toLocaleTimeString("zh-CN", { hour12: false })}）`);
+    } catch {
+      // 清不掉也不能影响回话，下一个整点再试
+    }
+    timer = setTimeout(tick, everyMs);
+  };
+
+  timer = setTimeout(tick, msToNext());
+  return () => {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
 }
 
 function tail(path: string, lines: number): string[] {

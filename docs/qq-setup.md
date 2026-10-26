@@ -46,7 +46,7 @@ NapCat 是「用你的 QQ 号登录、对外提供 OneBot 接口」的协议端�
 ## 二、配机器人
 
 ```powershell
-cd C:\Users\Administrator\Documents\deepseek-harness\default-workspace\whale-memory
+cd %USERPROFILE%\Documents\deepseek-harness\default-workspace\whale-memory
 node src/bot.ts --init
 ```
 

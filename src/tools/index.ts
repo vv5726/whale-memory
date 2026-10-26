@@ -67,6 +67,8 @@ export function buildTools(
     pin?: (input: { id?: string; title?: string; pin: boolean; expireDays?: number }) => { ok: boolean; text: string };
     about?: (input: { person: string; content: string }) => { ok: boolean; text: string };
     listMemories?: (opts: { limit?: number; kind?: string; sinceDays?: number }) => { rows: Array<{ id: string; title: string; kind: string; tier: string; day: string; pinned: boolean }>; total: number };
+    /** 群名册按需刷新（group_members 的 action=sync）；拿不到 OneBot 连接时返回 null */
+    rosterRefresh?: (groupId: number) => Promise<number | null>;
   },
 ): ToolRegistry {
   const registry = new ToolRegistry();
@@ -91,7 +93,7 @@ export function buildTools(
   registerSelfTools(registry, cfg.dataDir);
   registerLogTools(registry, cfg.dataDir);
   if (db) registerSelfMemoryTools(registry, db, memoryHooks);
-  if (db) registerRosterTools(registry, { db });
+  if (db) registerRosterTools(registry, { db, refresh: memoryHooks?.rosterRefresh });
   registerTuneTool(registry, memoryHooks);
   if (db && memoryHooks) registerForgetTool(registry, memoryHooks);
   if (db && memoryHooks) registerPinTool(registry, memoryHooks);

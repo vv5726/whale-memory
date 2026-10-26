@@ -157,7 +157,7 @@ qwen3:8b    xxx    6.5 GB   100% GPU           ...
 代理关掉后，把这些命令的输出发给我：
 
 ```powershell
-cd C:\Users\Administrator\Documents\deepseek-harness\default-workspace\whale-memory
+cd %USERPROFILE%\Documents\deepseek-harness\default-workspace\whale-memory
 ollama --version
 ollama list
 node src/cli.ts llm

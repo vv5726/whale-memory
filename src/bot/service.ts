@@ -28,7 +28,7 @@ import {
 import {
  recordOwnNote, recordThought } from "../notes.ts";
 import { ensureSelfPerson, personCardsFor } from "../person-graph.ts";
-import { rosterLine, saveGroupMembers } from "../group-roster.ts";
+import { rosterLine, saveGroupMembers, hasRoster } from "../group-roster.ts";
 import type { GroupMember } from "./onebot.ts";
 import {
  addAlias, ensurePerson, listPeople, resolvePerson } from "../people.ts";
@@ -163,7 +163,8 @@ export function dropHistoryCaches(): void {
  onImage?: (filePath: string) => void | Promise<void>;
  notify?: (text: string) => void };
   private sleeping = false;
-  private counters = {
+  /** 群名册拉取器（bot.ts 注入）：只在 group_members 的 action=sync 时用 */
+  private rosterSource: ((groupId: number) => Promise<GroupMember[]>) | null = null;  private counters = {
     received: 0,    replied: 0,    ignored: 0,    failed: 0,    sleeps: 0,    toolCalls: 0,    lastSleepAt: null as number | null,  };
   constructor(    cfg: BotConfig,    opts: {
       replyAdapter?: LlmAdapter;
@@ -232,7 +233,7 @@ export function dropHistoryCaches(): void {
             const total = Number(this.db.prepare("SELECT COUNT(*) AS c FROM events WHERE archived = 0").get()?.c ?? 0);
             return {
  ok: true, text: `�������ˣ���γ鵽 ${stats.llm?.inserted ?? 0} ���������ܹ� ${total} ������` };
-          },        })      : null;
+          },        rosterRefresh: async (groupId: number) => await this.refreshRoster(groupId),        })      : null;
     initCost(this.db, {
       inputPerMTok: cfg.costInputPerMTok,      outputPerMTok: cfg.costOutputPerMTok,      dailyBudgetYuan: cfg.dailyBudgetYuan,    });
     // ��ȡҲ��ͬһ����ˣ�API ģ�͵ĳ�ȡ�������Ը��ڱ��� 8b
@@ -433,6 +434,19 @@ return this.act(lines.join("\n"), loadTuning(this.cfg.dataDir).maxToolRounds);
   }  /** 把一份群名册落库（OneBot get_group_member_list 的结果，整群覆盖） */
   syncGroupRoster(groupId: number | string, members: GroupMember[]): { group: string; count: number } {
     return saveGroupMembers(this.db, groupId, members);
+  }  /** 这个群学过名册没有（学过就不必再拉，免得日志刷屏） */
+  hasRoster(groupId: number | string): boolean {
+    return hasRoster(this.db, groupId);
+  }  /** 名册拉取器：bot.ts 连上 OneBot 后注入，供 group_members 工具按需刷新 */
+  setRosterSource(fn: (groupId: number) => Promise<GroupMember[]>): void {
+    this.rosterSource = fn;
+  }  /** 现拉一次名册（工具 action=sync 用）；拿不到连接返回 null */
+  async refreshRoster(groupId: number): Promise<number | null> {
+    const fn = this.rosterSource;
+    if (!fn) return null;
+    const members = await fn(groupId);
+    if (members.length === 0) return null;
+    return saveGroupMembers(this.db, groupId, members).count;
   }  /** 把这份对话历史缓存丢掉，下次 historyFor 从 turns 表重读 */
   forgetHistory(): void {
     this.history.clear();

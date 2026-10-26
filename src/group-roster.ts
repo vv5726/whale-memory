@@ -71,6 +71,15 @@ export function listGroupMembers(db: DatabaseSync, groupId: number | string): Ro
   }));
 }
 
+/** 群里有没有名册（= 学过没有）。只学一次，之后靠工具按需刷新。 */
+export function hasRoster(db: DatabaseSync, groupId: number | string): boolean {
+  ensureRosterTable(db);
+  const r = db.prepare("SELECT 1 AS x FROM group_members WHERE group_id = ? LIMIT 1").get(String(groupId)) as
+    | { x: number }
+    | undefined;
+  return !!r;
+}
+
 /** 最近一次同步时间（0 = 没同步过） */
 export function rosterSyncedAt(db: DatabaseSync, groupId: number | string): number {
   ensureRosterTable(db);
