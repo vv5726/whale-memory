@@ -4,7 +4,7 @@
 
 ![和主流方案的区别](assets/comparison.png)
 
-对比细节：[docs/COMPARISON.md](docs/COMPARISON.md) · 30 秒演示：[docs/DEMO.md](docs/DEMO.md)（`node demo/recall-demo.ts`）
+「无限上下文」怎么做的：[图](docs/infinite-context.png) · 对比细节：[docs/COMPARISON.md](docs/COMPARISON.md) · 30 秒演示：[docs/DEMO.md](docs/DEMO.md)（`node demo/recall-demo.ts`）
 
 ## 它有什么
 

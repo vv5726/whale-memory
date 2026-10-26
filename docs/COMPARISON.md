@@ -4,6 +4,8 @@
 
 前者解决"这次回答得好不好"，后者解决"三个月后她还记得我、还是同一个她吗"。
 
+![怎么做到的](infinite-context.png)
+
 ## 一张表
 
 | | 通用助手（ChatGPT / DeepSeek / 豆包） | 角色陪伴（Replika / 星野 / 筑梦岛） | 记忆中间件（Mem0 / Zep / Letta） | Agent 框架（AutoGPT / OpenHands） | IM 机器人（NapCat + 各种 bot 插件） | **本项目** |
