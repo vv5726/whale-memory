@@ -1,0 +1,3 @@
+{
+  "*": { "events": "this-is-not-an-array", "garbage": true }
+}

@@ -1,0 +1,59 @@
+{
+  "2026-06-30": {
+    "events": [
+      {
+        "title": "团子查出肾病，要长期打针",
+        "detail": "团子生病了，肾不好，医生说可能要长期打针。",
+        "cause": null,
+        "effect": "我在宠物医院陪它到晚上十点",
+        "core": "它一直没叫，就那么在诊台上看着我",
+        "affect": {
+          "valence": -0.5,
+          "arousal": 0.65,
+          "tags": ["心疼", "无力"],
+          "summary": "它疼也不叫，反倒是我更需要被安慰"
+        },
+        "anchors": [
+          { "name": "团子", "kind": "thing", "confidence": 1.0 },
+          { "name": "宠物医院", "kind": "place", "confidence": 0.9 },
+          { "name": "肾病", "kind": "thing", "confidence": 0.8 }
+        ],
+        "promise": { "isPromised": false, "what": null }
+      },
+      {
+        "title": "暴雨里把它裹在外套里",
+        "detail": "回来路上下雨了，我把它裹在外套里，它就那么看着我。",
+        "cause": "从宠物医院出来",
+        "effect": null,
+        "core": "它就那么看着我",
+        "affect": {
+          "valence": -0.3,
+          "arousal": 0.5,
+          "tags": ["心疼"],
+          "summary": "它那么看着我，我什么都做不了"
+        },
+        "anchors": [{ "name": "团子", "kind": "thing", "confidence": 1.0 }],
+        "promise": { "isPromised": false, "what": null }
+      },
+      {
+        "title": "约好下周带团子复查",
+        "detail": "医生让下周三把团子带回来复查，不能拖。",
+        "cause": "肾病要长期打针",
+        "effect": null,
+        "core": "医生在病历上写了「下周三复查」",
+        "affect": {
+          "valence": -0.2,
+          "arousal": 0.45,
+          "tags": ["担忧", "责任感"],
+          "summary": "日子记下了，不能忘"
+        },
+        "anchors": [
+          { "name": "团子", "kind": "thing", "confidence": 1.0 },
+          { "name": "宠物医院", "kind": "place", "confidence": 0.8 }
+        ],
+        "promise": { "isPromised": true, "what": "下周三带团子回宠物医院复查" }
+      }
+    ]
+  },
+  "*": { "events": [] }
+}

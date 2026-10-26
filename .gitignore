@@ -1,0 +1,18 @@
+# 运行数据：不进仓库
+data/
+*.db
+*.db-wal
+*.db-shm
+*.bak
+
+# 配置里带 API key，只提交 example
+data/bot.json
+bot.json
+
+# 依赖与日志
+node_modules/
+*.log
+
+# 系统
+.DS_Store
+Thumbs.db

@@ -1,0 +1,19 @@
+{
+  "name": "dsh-whale-memory",
+  "version": "0.1.0",
+  "description": "会淡忘的长期记忆：分层下沉 + 锚点联想 + 情绪衰减。解决「上下文一满就像换了个人」。",
+  "type": "module",
+  "main": "lib/index.mjs",
+  "files": ["lib"],
+  "keywords": ["dsh", "dsh-plugin", "memory", "forgetting", "anchors"],
+  "license": "MIT",
+  "engines": {
+    "dsh": ">=0.2.0-rc.1",
+    "node": ">=22"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
