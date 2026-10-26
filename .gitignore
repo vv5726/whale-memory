@@ -1,5 +1,8 @@
-# 运行数据：不进仓库
-data/
+# 运行数据：不进仓库（里面有密钥、真实对话、日志）
+# 但两个「新人必需」的文件要放行，否则 clone 下来第一条命令就跑不动
+data/*
+!data/bot.example.json
+!data/seed-anchors.json
 *.db
 *.db-wal
 *.db-shm

@@ -30,22 +30,29 @@
 
 1. **装 NapCat**（把 QQ 变成 OneBot 11 服务）
 2. **准备一个 QQ 号**（建议小号）和一个群
-3. **复制配置**
+3. **建库**（会建表，并灌 17 个演示锚点）
+
+   ```bash
+   node src/cli.ts init
+   ```
+
+   > 没有 `data/seed-anchors.json` 也能跑：会提示「先用空锚点」，锚点本来就会从对话里长出来。
+
+4. **复制配置**
 
    ```bash
    cp data/bot.example.json data/bot.json
    ```
 
-4. **填三样东西**
+5. **填三样东西**
 
    | 字段 | 填什么 |
    |---|---|
    | `deepseekApiKey` | 你的 DeepSeek key |
    | `selfId` | 机器人自己的 QQ 号 |
-   | `ownerQq` | 主人的 QQ 号 |
-   | `allowGroups` | 允许它说话的群号 |
+   | `allowPrivate` / `allowGroups` | 允许它私聊 / 说话的号 |
 
-5. **启动**
+6. **启动**
 
    ```bash
    node src/bot.ts

@@ -1,4 +1,4 @@
-﻿import { fileURLToPath } from "node:url";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { existsSync, rmSync, statSync, writeFileSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
@@ -101,7 +101,14 @@ function cmdInit(flags: Record<string, string | boolean>): void {
   const path = dbPathFromFlags(flags);
   const db = openDb(path);
   if (flags.reset === true) resetDb(db);
-  const n = seedFromFile(db, SEEDS);
+  // 种子文件是可选的：发布仓库里不一定带 data/（里面有密钥和对话）。
+  // 以前这里直接 seedFromFile，缺文件就 ENOENT 崩掉——新人 clone 下来第一条命令就死。
+  let n = 0;
+  try {
+    n = seedFromFile(db, SEEDS);
+  } catch {
+    console.log(`（没有种子文件 ${SEEDS}，先用空锚点；锚点本来就会从对话里长出来）`);
+  }
   console.log(`数据库：${path}`);
   console.log(`锚点种子：${n} 个`);
 }

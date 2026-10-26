@@ -1,4 +1,4 @@
-﻿import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { EventRow, Stage, Tier } from "./types.ts";
@@ -49,6 +49,20 @@ CREATE TABLE IF NOT EXISTS events (
   size_tokens INTEGER NOT NULL DEFAULT 0,
   archived INTEGER NOT NULL DEFAULT 0,
   source_turn_id TEXT,
+  -- v3 事件卡的字段。以前只在线上库里（开发时用临时补丁脚本加的），
+  -- 没合进 SCHEMA，所以「从仓库新建的库」存不下 etype/status/evidence 这些。
+  etype TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT '',
+  responsible TEXT NOT NULL DEFAULT '',
+  time_absolute TEXT NOT NULL DEFAULT '',
+  time_relative TEXT NOT NULL DEFAULT '',
+  place TEXT NOT NULL DEFAULT '',
+  evidence TEXT NOT NULL DEFAULT '',
+  sensitivity TEXT NOT NULL DEFAULT '',
+  expires_at INTEGER,
+  memory_value INTEGER NOT NULL DEFAULT 0,
+  valid_to INTEGER,
+  superseded_by TEXT NOT NULL DEFAULT '',
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -78,13 +92,26 @@ CREATE TABLE IF NOT EXISTS anchors (
   salience REAL NOT NULL DEFAULT 1.0,
   hits INTEGER NOT NULL DEFAULT 0,
   first_seen INTEGER NOT NULL,
-  last_seen INTEGER NOT NULL
+  last_seen INTEGER NOT NULL,
+  -- 人节点要记「外部身份」（QQ 号），原本由 people.ts 懒加，新库会缺
+  external_id TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS anchor_aliases (
   alias TEXT PRIMARY KEY,
   anchor_id TEXT NOT NULL,
   confidence REAL NOT NULL DEFAULT 1.0
+);
+
+-- people 原本由 people.ts 在「第一次见到这个人」时懒建；
+-- 但睡眠里的人↔锚点绑定会先用到它，新库就会报 no such table: people。
+CREATE TABLE IF NOT EXISTS people (
+  qq_id TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL DEFAULT '',
+  aliases TEXT NOT NULL DEFAULT '[]',
+  anchor_id TEXT NOT NULL DEFAULT '',
+  first_seen INTEGER NOT NULL,
+  last_seen INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS edges (
@@ -169,9 +196,40 @@ export function openDb(path: string): DatabaseSync {
 }
 
 export function migrate(db: DatabaseSync): void {
+  // 顺序要紧：老库可能缺 stage，而 SCHEMA 里有 CREATE INDEX ... ON events(stage)。
+  // 先建表/建索引的话，还没补列就已经炸了（"no such column: stage"）。
+  // 所以先补这一步关键列；表还不存在时 ensureColumn 会抛，忽略即可。
+  try {
+    ensureColumn(db, "events", "stage", "TEXT NOT NULL DEFAULT 'legacy'");
+  } catch {
+    // 表还不存在，SCHEMA 会建出来
+  }
   db.exec(SCHEMA);
   // 老库补列：原型阶段用 ADD COLUMN 就够了，不写完整迁移框架
+  // stage 从第一版就在建表语句里，所以以前没进补列清单；
+  // 但只要拿到的是更早/别处生成的库，openDb 就会直接报 "no such column: stage"。
+  // 补一个默认值 'legacy'，让老库能开起来（2026-10-26 有人从 GitHub 拿到后就这么卡住）。
+  ensureColumn(db, "events", "stage", "TEXT NOT NULL DEFAULT 'legacy'");
+  // v3 事件卡字段：老库也要补，否则抽取写不进去（同一批字段只在线上库里有）
+  for (const [col, ddl] of [
+    ["etype", "TEXT NOT NULL DEFAULT ''"],
+    ["status", "TEXT NOT NULL DEFAULT ''"],
+    ["responsible", "TEXT NOT NULL DEFAULT ''"],
+    ["time_absolute", "TEXT NOT NULL DEFAULT ''"],
+    ["time_relative", "TEXT NOT NULL DEFAULT ''"],
+    ["place", "TEXT NOT NULL DEFAULT ''"],
+    ["evidence", "TEXT NOT NULL DEFAULT ''"],
+    ["sensitivity", "TEXT NOT NULL DEFAULT ''"],
+    ["expires_at", "INTEGER"],
+    ["memory_value", "INTEGER NOT NULL DEFAULT 0"],
+    ["valid_to", "INTEGER"],
+    ["superseded_by", "TEXT NOT NULL DEFAULT ''"],
+  ] as Array<[string, string]>) {
+    ensureColumn(db, "events", col, ddl);
+  }
   ensureColumn(db, "events", "pin_expires_at", "INTEGER");
+  // anchors 的 external_id 原本也只在 people.ts 里懒加，新库缺它 → 睡眠里人↔锚点绑定直接报错
+  ensureColumn(db, "anchors", "external_id", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "events", "derived_from", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "events", "context_kinds", "TEXT NOT NULL DEFAULT '[]'");
   // 共享记忆下要知道这条是谁的事：检索时优先匹配当前说话人
