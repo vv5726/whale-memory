@@ -24,6 +24,8 @@
 - **工具轮次不设上限**：跑到它自己不再调工具为止（`maxToolRounds = 0`），
   刹车交给每日预算和单次超时
 
+和主流方案的对比（含优缺点、适合谁）见 [docs/COMPARISON.md](docs/COMPARISON.md)。
+
 ## 人格模板
 
 `personas/free/` 是一套开箱可用的人格（persona.md + self.md），拷进 `data/` 就生效：
