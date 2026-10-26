@@ -20,6 +20,9 @@ import { ensureSelfSeed } from "./self.ts";
 import { AutonomyLoop } from "./bot/autonomy.ts";
 import { describeUptime, markBoot, markDown, markReconnect } from "./uptime.ts";
 import { parseApprovalReply } from "./approvals.ts";
+import { saveFromMessage } from "./stickers.ts";
+import { autoStickerAfterReply } from "./bot/auto-sticker.ts";
+import { lastChatTarget, matchChatTarget, recentChatTargets, resolveSpeakTarget } from "./bot/last-chat.ts";
 import { chooseIdentity, listAvatars, avatarPath } from "./bot/self.ts";
 import { OllamaAdapter } from "./llm/adapter.ts";
 import { OneBotClient } from "./bot/onebot.ts";
@@ -201,11 +204,15 @@ async function main(): Promise<void> {
   let client: OneBotClient | null = null;
   let lastEvt: Parameters<OneBotClient["reply"]>[0] | null = null;
 
-  const loop = new AutonomyLoop(cfg, autonomyService, (text) => {
-    if (client) {
-      client.sendPrivate(ownerId, text);
-      console.log(`[speak] 主动发给他：${text}`);
-    }
+  const loop = new AutonomyLoop(cfg, autonomyService, (text, to) => {
+    if (!client) return;
+    // 她可以在「给：」里点名说给谁；没点名就发最近那个会话；都没有才发主人私聊。
+    // 以前这里写死 sendPrivate(ownerId)——群里跟别人聊，话却发到主人那儿。
+    const picked = to ? matchChatTarget(to, recentChatTargets()) : null;
+    const target = resolveSpeakTarget(picked ?? lastChatTarget(), ownerId);
+    if (target.kind === "group") client.sendGroup(target.id, text);
+    else client.sendPrivate(target.id, text);
+    console.log(`[speak] 主动发给${target.label}${to ? `（她点名：${to}）` : ""}：${text}`);
   });
 
   // 手机可能随时断（充电满了自动断 USB），每分钟检查一次
@@ -231,6 +238,13 @@ async function main(): Promise<void> {
     onImage: (p) => {
       if (client && lastEvt) client.sendImage(lastEvt, p);
     },
+    // 表情包：她自己调 sticker_send 时，图从这里发出去。
+    // 走神/自主活动里没有「当前对话」，就发到主人私聊——以前这种情况直接报「发不出图」。
+    sendSticker: (p) => {
+      if (!client) return;
+      if (lastEvt) client.sendImage(lastEvt, p);
+      else client.sendImage({ isGroup: false, userId: ownerId } as never, p);
+    },
     notify: (text) => {
       if (client) client.sendPrivate(ownerId, text);
     },
@@ -238,6 +252,8 @@ async function main(): Promise<void> {
 
   client = new OneBotClient(cfg, (evt) => {
     lastEvt = evt;
+    // 别人发的好图顺手收进表情包库（只收图，不影响聊天；失败静默）
+    void saveFromMessage(cfg.dataDir, evt.text).catch(() => {});
     void (async () => {
       loop.noteUserMessage();
 
@@ -252,6 +268,12 @@ async function main(): Promise<void> {
       const reply = await router.handle(evt);
       if (reply) {
         await client.sendBubbles(evt, reply);
+        // 光靠她自己想不起来发表情包：按情绪词兜一层（30% 概率、图库里有才发）
+        void autoStickerAfterReply(cfg.dataDir, reply, {
+          send: (p) => {
+            if (client && lastEvt) client.sendImage(lastEvt, p);
+          },
+        }).catch(() => {});
         // 说完就结束。以前这里还有一段「回头看要不要再补一句」，
         // 结果它会自问自答、越说越偏，2026-10-26 删掉了。
       }
@@ -263,6 +285,12 @@ async function main(): Promise<void> {
   const stopAutonomy = loop.start();
   const stopSpeaking = cfg.proactiveEnabled ? loop.startSpeaking(1, 20) : () => undefined;
   const stopThinking = cfg.thinkEnabled ? loop.startThinking(1.5, 3.5) : () => undefined;
+
+  // 计划表：到点就主动送一次（走神被挡住时也不会漏）
+  const stopPlans = setInterval(() => {
+    void autonomyService.deliverDuePlans().catch(() => {});
+  }, 90_000);
+  setTimeout(() => void autonomyService.deliverDuePlans().catch(() => {}), 8_000);
 
   // ── 群名册 ──
   // 只学一次：哪个群还没有名册就拉一次存进库，之后不再后台轮询——
@@ -328,6 +356,7 @@ async function main(): Promise<void> {
     stopAutonomy();
     stopSpeaking();
     stopThinking();
+  clearInterval(stopPlans);
     stopRosters();
     stopLogTruncation();
     autonomyService.close();

@@ -33,6 +33,18 @@ export interface Tuning {
   v3MinValue: number;
   /** 新抽取（v3）：一批最多记几条 */
   v3MaxEvents: number;
+  /** 走神：两次走神之间最短隔多久（分钟） */
+  thinkGapMinMinutes: number;
+  /** 走神：两次走神之间最长隔多久（分钟） */
+  thinkGapMaxMinutes: number;
+  /** 走神：他说话之后安静多少秒才允许走神 */
+  thinkIdleSeconds: number;
+  /** 走神：任何活动（回话/工具/自主活动）后缓多少秒 */
+  thinkSettleSeconds: number;
+  /** 走神：到点后掷中的概率 */
+  thinkChance: number;
+  /** 计划做完后写成记忆时给几分（0-10）：高了不容易被压缩，低了更容易下沉 */
+  planDoneMemoryValue: number;
 }
 
 const DEFAULTS: Tuning = {
@@ -46,6 +58,12 @@ const DEFAULTS: Tuning = {
   maxToolRounds: 0,
   v3MinValue: 3,
   v3MaxEvents: 8,
+  thinkGapMinMinutes: 1.5,
+  thinkGapMaxMinutes: 3.5,
+  thinkIdleSeconds: 30,
+  thinkSettleSeconds: 90,
+  thinkChance: 0.85,
+  planDoneMemoryValue: 6,
 };
 
 function fileOf(dataDir: string): string {
@@ -68,6 +86,12 @@ export function loadTuning(dataDir: string): Tuning {
       maxToolRounds: Math.max(0, Math.min(200, Number(raw.maxToolRounds ?? DEFAULTS.maxToolRounds))),
       v3MinValue: Math.max(0, Math.min(10, Number(raw.v3MinValue ?? DEFAULTS.v3MinValue))),
       v3MaxEvents: Math.max(1, Math.min(30, Number(raw.v3MaxEvents ?? DEFAULTS.v3MaxEvents))),
+      thinkGapMinMinutes: clamp(Number(raw.thinkGapMinMinutes ?? DEFAULTS.thinkGapMinMinutes), 0.3, 60),
+      thinkGapMaxMinutes: clamp(Number(raw.thinkGapMaxMinutes ?? DEFAULTS.thinkGapMaxMinutes), 0.6, 120),
+      thinkIdleSeconds: clamp(Number(raw.thinkIdleSeconds ?? DEFAULTS.thinkIdleSeconds), 0, 600),
+      thinkSettleSeconds: clamp(Number(raw.thinkSettleSeconds ?? DEFAULTS.thinkSettleSeconds), 0, 600),
+      thinkChance: clamp(Number(raw.thinkChance ?? DEFAULTS.thinkChance), 0, 1),
+      planDoneMemoryValue: clamp(Number(raw.planDoneMemoryValue ?? DEFAULTS.planDoneMemoryValue), 0, 10),
     };
   } catch {
     return { ...DEFAULTS };
@@ -87,6 +111,12 @@ export function saveTuning(dataDir: string, t: Partial<Tuning>): Tuning {
     maxToolRounds: Math.max(0, Math.min(200, Number(t.maxToolRounds ?? cur.maxToolRounds))),
     v3MinValue: Math.max(0, Math.min(10, Number(t.v3MinValue ?? cur.v3MinValue))),
     v3MaxEvents: Math.max(1, Math.min(30, Number(t.v3MaxEvents ?? cur.v3MaxEvents))),
+    thinkGapMinMinutes: clamp(Number(t.thinkGapMinMinutes ?? cur.thinkGapMinMinutes), 0.3, 60),
+    thinkGapMaxMinutes: clamp(Number(t.thinkGapMaxMinutes ?? cur.thinkGapMaxMinutes), 0.6, 120),
+    thinkIdleSeconds: clamp(Number(t.thinkIdleSeconds ?? cur.thinkIdleSeconds), 0, 600),
+    thinkSettleSeconds: clamp(Number(t.thinkSettleSeconds ?? cur.thinkSettleSeconds), 0, 600),
+    thinkChance: clamp(Number(t.thinkChance ?? cur.thinkChance), 0, 1),
+    planDoneMemoryValue: clamp(Number(t.planDoneMemoryValue ?? cur.planDoneMemoryValue), 0, 10),
   };
   const f = fileOf(dataDir);
   mkdirSync(dirname(f), { recursive: true });

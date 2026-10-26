@@ -37,7 +37,7 @@ async function firstDevice(opts: PhoneOptions): Promise<string | null> {
 const NO_DEVICE = "没有连上手机（检查 USB 调试是否打开，或先跑 adb connect）";
 
 /**
- * 不看抖音（2026-10-26 定的）。
+ * 不看抖音（vv 在 2026-10-26 定的）。
  *
  * 为什么拦在工具层，不只写在提示词里：提示词它可能忽略，滑一下就没完，
  * 而且刷抖音那套（开 App → 滑 → 读屏）每次都花掉真实的注意力。

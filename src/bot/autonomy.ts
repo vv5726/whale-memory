@@ -4,6 +4,7 @@ import { ReaderAgent } from "./reader.ts";
 import { appendJournal } from "../tools/journal.ts";
 import { parseIntent } from "../intent.ts";
 import { anchorRepeats, recentAnchors, rememberThought } from "../thought.ts";
+import { loadTuning } from "../tuning.ts";
 import { dayKey } from "../util.ts";
 import { join } from "node:path";
 
@@ -33,9 +34,9 @@ export class AutonomyLoop {
   private lastRunAt = 0;
   private lastUserMessageAt = 0;
   /** 决定开口时，用它把话发出去（没有就只记手记，不打扰人） */
-  private onSpeak: ((text: string) => void) | null = null;
+  private onSpeak: ((text: string, to?: string) => void) | null = null;
 
-  constructor(cfg: BotConfig, service: BotService, onSpeak?: (text: string) => void) {
+  constructor(cfg: BotConfig, service: BotService, onSpeak?: (text: string, to?: string) => void) {
     this.cfg = cfg;
     this.service = service;
     this.onSpeak = onSpeak ?? null;
@@ -130,7 +131,7 @@ export class AutonomyLoop {
     return [
       `现在是 ${time}，没人跟你说话。你有自己的时间。`,
       this.situation(),
-      watched.length > 0 ? `\n今天已经看过：${watched.join("、")}。别再翻回这些了。` : "",
+      watched.length > 0 ? `\n今天已经看过：${watched.join("、")}。看过的也可以再看——觉得值得就重读，别只看标题就跳过。` : "",
       "",
       `【今天】`,
       videoLine,
@@ -197,9 +198,12 @@ export class AutonomyLoop {
     return [
       "今天有什么值得看的。翻一翻热门和排行，挑值得的花时间读。",
       this.situation(),
-      watched.length > 0 ? `今天已经看过：${watched}，别再看这些。` : "",
+      watched.length > 0 ? `今天已经看过：${watched}。看过的也可以再看，重读一遍往往比看新的收获大。` : "",
       quotaLine,
       "额度你自己分配：想读几个读几个。",
+      "如果今天想轻松点：用 bili_search 搜「热梗」「梗合集」「网络热词」，",
+      "  把还在流行的梗学下来（category 填「热梗」，source 写 BV 号和日期，content 写清意思+什么场合用+一句例句）。",
+      "  过时的不学——记梗是为了聊天时能用，不是攒词条。",
       "但每一条读过的都要写清楚它讲了什么——读了却不记住，等于白花额度。",
       "读不完的记下来，明天接着读。",
     ]
@@ -408,6 +412,8 @@ export class AutonomyLoop {
    */
   async thinkOnce(): Promise<{ thought: boolean; reason: string; text?: string }> {
     const cfg = this.cfg;
+    // 这几个旋钮她自己能改（think_knobs_write），所以每次走神都重新读
+    const tune = loadTuning(cfg.dataDir);
     if (!cfg.thinkEnabled) return { thought: false, reason: "走神关着" };
     if (this.busy) return { thought: false, reason: "上一轮还没结束" };
 
@@ -416,7 +422,7 @@ export class AutonomyLoop {
     // 当时的闸门 busyRecently() 看的是本实例的 lastActivityAt，而聊天走的是另一个
     // service 实例，等于完全看不见——现在时间戳改成了全局共享的。
     // thinkIdleSeconds 以前只打在启动日志里，从没真的判过，现在拿它当「安静多久才算闲」。
-    const quietMs = Math.max(0, cfg.thinkIdleSeconds) * 1000;
+    const quietMs = Math.max(0, tune.thinkIdleSeconds) * 1000;
     if (quietMs > 0 && this.lastUserMessageAt > 0) {
       const since = Date.now() - this.lastUserMessageAt;
       if (since < quietMs) {
@@ -426,7 +432,7 @@ export class AutonomyLoop {
 
     // 正在干事 / 刚干完事，就别把它拽去走神。
     // 走神是「闲下来才会想起一件事」，不是「干活干到一半突然分心」。
-    const settleMs = cfg.thinkSettleSeconds * 1000;
+    const settleMs = tune.thinkSettleSeconds * 1000;
     if (settleMs > 0 && this.service.busyRecently(settleMs)) {
       return { thought: false, reason: "刚忙完，先让它缓一下" };
     }
@@ -438,7 +444,7 @@ export class AutonomyLoop {
     const inWindow = from <= to ? hour >= from && hour < to : hour >= from || hour < to;
     if (!inWindow) return { thought: false, reason: "不在时段" };
 
-    if (Math.random() >= cfg.thinkChance) return { thought: false, reason: "这次没掷中" };
+    if (Math.random() >= tune.thinkChance) return { thought: false, reason: "这次没掷中" };
 
     // 最近想过的不再挑，否则会一直在同一件事上打转
     const exclude = recentAnchors(cfg.dataDir);
@@ -473,7 +479,7 @@ export class AutonomyLoop {
       // 途径 = 聊天：这是它以前从来没走过的一条路
       if (intent.channel === "chat" && intent.message && intent.message.length > 0) {
         if (intent.message) this.service.recordSaid(intent.message);
-        this.onSpeak?.(intent.message);
+        this.onSpeak?.(intent.message, intent.to);
         appendJournal(
           cfg.dataDir,
           dayKey(started),
@@ -507,7 +513,10 @@ export class AutonomyLoop {
 
     const schedule = (): void => {
       if (stopped) return;
-      const gap = low + Math.random() * (high - low);
+      const tune = loadTuning(this.cfg.dataDir);
+      const gapLow = Math.max(0.3, tune.thinkGapMinMinutes ?? low);
+      const gapHigh = Math.max(gapLow + 0.3, tune.thinkGapMaxMinutes ?? high);
+      const gap = gapLow + Math.random() * (gapHigh - gapLow);
       this.thinkTimer = setTimeout(() => {
         void this.thinkOnce()
           .then((r) => {

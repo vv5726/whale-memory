@@ -190,6 +190,8 @@ export function openDb(path: string): DatabaseSync {
   if (!inMemory) mkdirSync(dirname(target), { recursive: true });
   const db = new DatabaseSync(target);
   db.exec("PRAGMA journal_mode = WAL;");
+  // 两个 BotService 共用一个库：写冲突时等一会儿，别直接把这条消息丢掉（2026-10-26 切 SnowLuma 时见过 database is locked）
+  db.exec("PRAGMA busy_timeout = 5000;");
   db.exec("PRAGMA foreign_keys = ON;");
   migrate(db);
   return db;

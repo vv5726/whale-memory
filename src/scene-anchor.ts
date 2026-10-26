@@ -33,7 +33,7 @@ export function sceneAnchorFor(db: DatabaseSync, kind: "group" | "private", idOr
 export function eventAnchorFor(db: DatabaseSync, title: string): string | null {
   try {
     let name = String(title ?? "")
-      .replace(/^(凝|QQ\d+|\d{5,})[：:\s]*/i, "")
+      .replace(/^(vv|凝|QQ\d+|\d{5,})[：:\s]*/i, "")
       .replace(/[「」“”"'《》【】()（）[\]]/g, "")
       .replace(/[，。！？；:：、,.;!?]/g, "")
       .trim();

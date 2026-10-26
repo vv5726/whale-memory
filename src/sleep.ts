@@ -280,9 +280,9 @@ export async function sleepAsync(
         const row = db.prepare("SELECT display_name, qq_id FROM people ORDER BY last_seen DESC LIMIT 1").get() as
           | { display_name?: string; qq_id?: string }
           | undefined;
-        return { user: row?.qq_id ? `${row.display_name || "对方"}（${row.qq_id}）` : "对方", assistant: "凝" };
+        return { user: row?.qq_id ? `${row.display_name || "vv"}（${row.qq_id}）` : "vv", assistant: "凝" };
       } catch {
-        return { user: "对方", assistant: "凝" };
+        return { user: "vv", assistant: "凝" };
       }
     })();
 

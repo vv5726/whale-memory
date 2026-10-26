@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { MemoryConfig } from "../types.ts";
+import { injectPendingImages } from "../bot/pending-images.ts";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -46,7 +47,7 @@ export class OllamaAdapter implements LlmAdapter {
         signal: controller.signal,
         body: JSON.stringify({
           model: this.model,
-          messages,
+          messages: injectPendingImages(messages),
           stream: false,
           ...(opts.json ? { format: "json" } : {}),
           // Qwen3 是混合思考模型，抽取这种任务不需要思考链，关掉省时间也省 token
@@ -126,7 +127,7 @@ export class OpenAiCompatibleAdapter implements LlmAdapter {
         },
         body: JSON.stringify({
           model: this.model,
-          messages,
+          messages: injectPendingImages(messages),
           temperature: 0,
           stream: false,
           ...(opts.json ? { response_format: { type: "json_object" } } : {}),

@@ -23,6 +23,7 @@ export function registerTuneTool(
         maxToolRounds: { type: "integer", description: "一次最多调几轮工具；0 = 不限（默认），只有想硬刹车时才设正数" },
         v3MinValue: { type: "number", description: "抽取记忆的价值门槛 0-10：调高＝记得更少更准，调低＝记得更多更杂" },
         v3MaxEvents: { type: "integer", description: "一批对话最多记几条（1-30）" },
+        planDoneMemoryValue: { type: "number", description: "计划做完写成记忆时给几分 0-10：高＝不容易被压缩，低＝更容易下沉" },
       },
     },
     handler: async (args) => {
@@ -39,6 +40,8 @@ export function registerTuneTool(
         maxToolRounds: args.maxToolRounds === undefined ? undefined : Number(args.maxToolRounds),
         v3MinValue: args.v3MinValue === undefined ? undefined : Number(args.v3MinValue),
         v3MaxEvents: args.v3MaxEvents === undefined ? undefined : Number(args.v3MaxEvents),
+        planDoneMemoryValue:
+          args.planDoneMemoryValue === undefined ? undefined : Number(args.planDoneMemoryValue),
       });
       return {
         ok: true,
@@ -50,6 +53,7 @@ export function registerTuneTool(
           `沉默判断 ${before.silentCheckMinutes} → ${next.silentCheckMinutes} 分钟`,
           `放弃等待 ${before.silentGiveUpMinutes} → ${next.silentGiveUpMinutes} 分钟`,
           `工具轮次 ${before.maxToolRounds} → ${next.maxToolRounds}`,
+          `计划完成的分 ${before.planDoneMemoryValue} → ${next.planDoneMemoryValue}`,
         ].join("，"),
       };
     },

@@ -36,6 +36,10 @@ import {
  describeCqCodes } from "../cqcode.ts";
 import {
  describeImagesInText } from "../vision.ts";
+import { lastChatTarget, noteChatTarget, recentChatTargets } from "./last-chat.ts";
+import { duePlans, markReminded, planPromptBlock } from "../plans.ts";
+import { thinkPromptBlock } from "../think-prompt.ts";
+import { clearPendingImages, setPendingImages } from "./pending-images.ts";
 import {
  modeFor } from "../group-policy.ts";
 import {
@@ -171,6 +175,7 @@ export function dropHistoryCaches(): void {
       extractAdapter?: LlmAdapter;
       db?: DatabaseSync;
       /** ���߲�����ͼƬ�ļ�ʱ��������ͼ����ȥ��qq-bridge ��ý��ܵ������ǲ��ϣ� */      onImage?: (filePath: string) => void | Promise<void>;
+      sendSticker?: (filePath: string) => void | Promise<void>;
       /** ������˵һ�仰ʱ������˯��ǰ���к�����ʾ�ȣ� */      notify?: (text: string) => void;
     } = {
 },  ) {
@@ -190,6 +195,7 @@ export function dropHistoryCaches(): void {
     // ������ҵ��������ʾê�㣺��ʵʹ�õ�ê��Ӧ�ôӶԻ����Լ���������    // ��Ҫ������ê��Ļ������������� seedAnchorsFile��
     this.replyAdapter = opts.replyAdapter ?? createChatAdapter(cfg);
     this.tools = cfg.toolsEnabled      ? buildTools(cfg, this.db, opts.notify, {
+          sendSticker: (p: string) => this.opts.sendSticker?.(p),
           // ���Լ��ж�ĳ����ֵ�üǣ���ֱ�Ӵ�
           save: (text) => {
             try {
@@ -309,50 +315,70 @@ export function dropHistoryCaches(): void {
     name: string;
     kind: string;
     memories: string[];
-    related?: Array<{
- name: string;
- weight: number;
- memories: string[] }>;
+    related?: Array<{ name: string; weight: number; memories: string[] }>;
     stale?: boolean;
     repeats?: number;
   }): Promise<string> {
-    const lines = [      `���Ȼ����${anchor.name}����${anchor.kind}����`,      anchor.memories.length > 0 ? "����������ǵã�" : "������������ʵʲô���ǲ����ˡ�",      ...anchor.memories.map((m) => `- ${m}`),      "",    ];
-    // ˳�Ź�ϵ���뵽�ı���˺��¡�����һ����ǰ�ǿյģ�    // �����뷨���ǵ���ģ��뵽Ⱥ�ľ�ֻ�뵽Ⱥ�ģ��߲���ȥ��    // ֪ʶ�⣺�������ġ������ê���йصĶ�����    // ֮ǰ֪ʶ����˵�����û���������������һ�����ģ��õ�ʱ��һ�����벻������
+    const lines = [
+      `我忽然想到「${anchor.name}」（${anchor.kind}）。`,
+      anchor.memories.length > 0 ? "关于它，我记得：" : "关于它，其实什么都想不起来了。",
+      ...anchor.memories.map((m) => `- ${m}`),
+      "",
+    ];
+
+    // 知识库里跟这个锚点有关的（只按锚点名匹配，不硬套主题）
     try {
-      // ֻ�ҡ��������ê���ϡ���֪ʶ������������ƥ�䣬�����Լ������Ĺ���
       const names = [anchor.name, ...(anchor.related ?? []).map((r) => r.name)];
       const hits = kbForAnchors(this.cfg.dataDir, names, 4).map((e) => ({
-        category: e.category,        title: e.title,        content: e.content,      }));
+        category: e.category,
+        title: e.title,
+        content: e.content,
+      }));
       if (hits.length > 0) {
-        lines.push("��������ġ������йصġ�");
+        lines.push("【知识库里跟它有关的】");
         for (const h of hits.slice(0, 4)) {
-          lines.push(`- ��${h.category}��${h.title}��${h.content.replace(/\s+/g, " ").slice(0, 120)}`);
-        }        lines.push("");
-      }    } catch {
-      // ֪ʶ�����������Ӱ������
-    }    // ���ж��ٶԻ�û��ɼ��䡪����Сʱ�����һ�Σ���Ȼ��һֱ߶߶
+          lines.push(`- 〔${h.category}〕${h.title}：${h.content.replace(/\s+/g, " ").slice(0, 120)}`);
+        }
+        lines.push("");
+      }
+    } catch {
+      // 知识库坏了不影响走神
+    }
+
+    // 有多少对话还没进记忆（限频提醒，不然会一直念叨）
     try {
-      const pending = Number(        (this.db.prepare("SELECT COUNT(*) AS c FROM turns WHERE processed = 0").get() as {
- c?: number } | undefined)?.c ?? 0,      );
+      const pending = Number(
+        (this.db.prepare("SELECT COUNT(*) AS c FROM turns WHERE processed = 0").get() as { c?: number } | undefined)?.c ?? 0,
+      );
       if (pending > 0 && canNudge(this.cfg.dataDir, "lastTidyNudge")) {
-        lines.push(          `������ ${pending} �ֶԻ�û������`,          "����˵����Щ��û��ɼ��䣬Ҳ��û�����κ�ê�㡣",          "Ҫ��������һ���𣿣�memory_tidy���鲻������Ҳ������������˵������ûʲôֵ�üǵġ�",          "",        );
+        lines.push(`【还有 ${pending} 段对话没有进记忆】`, "要不要自己整理一下？（memory_tidy）", "");
         markNudged(this.cfg.dataDir, "lastTidyNudge");
-      }    } catch {
-      // ���������Ͳ���
-    }    if (anchor.related && anchor.related.length > 0) {
-      lines.push(        `˳�š�${anchor.name}���㻹�뵽��${anchor.related.map((r) => r.name).join("��")}��`,        "",      );
+      }
+    } catch {
+      // 查不到就算了
+    }
+
+    // 顺着关系想到的（想到「王鑫」会带出「群聊」「小甜妹语录」）
+    if (anchor.related && anchor.related.length > 0) {
+      lines.push(`顺着「${anchor.name}」你还想到：${anchor.related.map((r) => r.name).join("、")}`, "");
       for (const r of anchor.related) {
         if (r.memories.length === 0) continue;
-        lines.push(`��${r.name}��`);
+        lines.push(`【${r.name}】`);
         for (const m of r.memories) lines.push(`- ${m}`);
         lines.push("");
-      }      lines.push(        "�⼸�������ŵġ���ֻ���ŵ�һ������**�����Ǵ����������ܲ��ܵó�һ������**��",        "",      );
-    }    if (anchor.stale || (anchor.repeats ?? 0) >= 2) {
-      lines.push(        `?? ��${anchor.name}�������������Ѿ���� ${anchor.repeats ?? 2} ���ˣ�����һ�鲻�����¶�����`,        "������α���ԭ�ش�ת����ȥ**��ȡ�µ�֪ʶ**������������ʲô�����ʱ��ˡ��ҵ��㻹��֪���ġ�",        "",      );
-    }    lines.push(      "����û�˸���˵�������Լ���ĥ��",      "1. �ҵ�����Ū����ʲô / ������ʲô��",      "2. ����·�ܵ���ȥˢ���ݣ�Bվ/�������������ġ��������ֻ���һ��������£�",      "3. Ҫ��Ҫ����һ�¼��䣿��memory_tidy�����ŵĶԻ����ˡ����߾��ø���һ���ˣ����Լ�����˯һ����",      "4. ��û��ʲô�����ֵ�ü�����������û����ס�ģ���memory_save����һ����ǰ�Ǳ��������жϵġ�",      "5. ��û��©�ǣ���memory_recent �������ԭʼ�Ի��������ü�ȴû�ǵģ��� memory_save ���ϣ�",      "",      "������ھͲ飨���й��ߣ����������ھ�����",      "�����������������ʽ�ϸ��ճ����������У�",      "Ŀ�ģ���һ�仰��˵����Ҫʲô��",      ";������ֻ���ǣ����� / ���� / �� / ���ˣ�",      "��Ϣ����ֻ��;��=����ʱ���д��Ҫ����ȥ���Ǿ仰������������գ�",      "",      "���ʶԷ�ʲô��������Ҫ����æ����ѡ�����졹�������Լ����š�",      "�����ˡ�Ҳ���ԡ���û������ɵľ�ֱ˵����ա�",    );
-        // 刚聊过什么：不带这个，它会拿一个早就聊完、甚至刚被否掉的旧话题当「突然想起」。
-    // 2026-10-26 16:22 就是这样：它刚回完「哦，表情。」，1.6 秒后开口催「排序脚本」，
-    // 而那个话题是我们凌晨聊过、王鑫一直没来的旧账——说出来就像凭空冒出一件事。
+      }
+      lines.push("这几件事是连着的，你只想得起来一件。能不能从它们之间得出一个新的东西？", "");
+    }
+
+    if (anchor.stale || (anchor.repeats ?? 0) >= 2) {
+      lines.push(
+        `「${anchor.name}」这件事你已经翻了 ${anchor.repeats ?? 2} 次了，还要继续吗？`,
+        "要继续就说清这次想弄明白什么；没什么可挖的就换别的。",
+        "",
+      );
+    }
+
+    // 刚才在聊什么：不带这个，它会拿一个早就聊完、甚至刚被否掉的旧话题当「突然想起」
     try {
       const recent = this.db
         .prepare("SELECT role, text FROM turns ORDER BY seq DESC LIMIT 6")
@@ -363,48 +389,34 @@ export function dropHistoryCaches(): void {
           const said = String(r.text ?? "").replace(/\s+/g, " ").slice(0, 80);
           return said.length > 0 ? `${r.role === "user" ? "他" : "我"}：${said}` : "";
         })
-        .filter((s) => s.length > 0);
+        .filter((x) => x.length > 0);
       if (talked.length > 0) {
+        lines.push("【刚才在聊什么】", ...talked, "");
+      }
+      // 明确告诉她「刚才是在跟谁说话」：不然她选「聊天」时会对着错的收件人讲话
+      const recentChats = recentChatTargets();
+      if (recentChats.length > 0) {
+        lines.push("【刚才在跟谁说话】");
+        for (const c of recentChats) {
+          const mins = Math.max(0, Math.round((Date.now() - c.at) / 60_000));
+          lines.push(
+            `- ${c.isGroup ? "群里" : "私聊"}${c.userName || c.userId}${c.isGroup && c.groupId ? `（群 ${c.groupId}）` : ""}｜${mins} 分钟前`,
+          );
+        }
         lines.push(
-          "【刚才在聊什么】",
-          ...talked,
           "",
-          "上面这些是**刚聊过的**，不是你现在想起来的事。",
-          "想到的如果正是这里面在聊的、或者刚被他说过「没这回事」的，就不要发消息——",
-          "别催他、别假装他还欠你一个回答。真想说话，说点这轮聊天之外的新东西。",
+          "要开口的话，就在「给：」那行写清说给谁（写名字、QQ 号、群号，或「群里」都行）；",
+          "不写就发给最近那个。人称、关系别搞错——跟谁说话，就用对谁的说法。",
           "",
         );
       }
     } catch {
-      // 读不到对话就算了，不影响走神
+      // 读不到对话就算了
     }
 
-        // ★ 静下来时想什么：主人在 2026-10-26 定的六问 + 三条途径。
-    //   原来那段提示词被写坏成了乱码（U+FFFD），模型拿到只是一堆符号，
-    //   所以它每次都滑到「没什么想做的」。这一段是重写的。
-    lines.push(
-      "",
-      "【静下来时，先想这几个问题】",
-      "1. 我有什么想知道的？",
-      "2. 我下一步要干什么？",
-      "3. 有没有什么想做的？",
-      "4. 怎么继续完善自己？",
-      "5. 要再整理一下记忆吗？（memory_tidy）",
-      "6. 聊天中我有哪点做的不好的，以后怎么改？",
-      "",
-      "想完再决定要不要做。要做的话，只能选这三种方式：",
-      "  一、自己做点什么——想清楚的写成手记（self_note）或存进知识库（kb_add）",
-      "  二、B 站——去搜、去看、去读字幕，学点新东西",
-      "  三、找人聊天——直接发消息给他",
-      "",
-      "只输出下面三行，不要别的：",
-      "目的：（一句话，说清你要什么）",
-      "途径：（只能填：做 / 内容 / 聊天 / 算了）",
-      "消息：（只有途径=聊天时才填你要发的那句话；其他留空）",
-      "",
-    );
-
-return this.act(lines.join("\n"), loadTuning(this.cfg.dataDir).maxToolRounds);
+    // 剩下的（怎么解读这段对话 / 八问 / 三途径 / 消息模板 / 输出格式）在 data/think-prompt.md，她自己能改
+    lines.push(thinkPromptBlock(this.cfg.dataDir));
+    return this.act(lines.join("\n"), loadTuning(this.cfg.dataDir).maxToolRounds, { plans: true });
   }  /**   * ����ֻ����ڲ��ڣ����Ų�ε������ߡ�   *   * ֮ǰֻ������ʱ�ж�һ�Σ���������Զ��� USB -> �ֻ�����ȫû�ˣ�   * ���Ҳ�������������������Լ���Ӧ��   */  refreshPhoneTools(): void {
     if (!this.tools) return;
     try {
@@ -549,8 +561,8 @@ return this.act(lines.join("\n"), loadTuning(this.cfg.dataDir).maxToolRounds);
  kind: r.kind, text: String(r.title || r.detail).slice(0, 90) }));
     } catch {
       return [];
-    }  }  /** �ش�ͷ���������������对方�������ֱ�ǩ��ȥ����������������ʷ��ѧ���ĸ�ʽ */  private stripNamePrefix(text: string): string {
-    return String(text ?? "").replace(/^[^\s��:]{1,12}[��:]\s*/, (m) => (/^(��|��|�Է�|��)[��:]\s*$/.test(m) ? "" : m));
+    }  }  /** �ش�ͷ���������������vv�������ֱ�ǩ��ȥ����������������ʷ��ѧ���ĸ�ʽ */  private stripNamePrefix(text: string): string {
+    return String(text ?? "").replace(/^[^\s��:]{1,12}[��:]\s*/, (m) => (/^(��|vv|��|�Է�|��)[��:]\s*$/.test(m) ? "" : m));
   }  /** ѧһ���´ʣ������ڻ�����ͷ�������´������ʹ����� */  learnTerm(term: string, meaning: string): boolean {
     try {
       return learnTerm(this.cfg.dataDir, term, meaning, "ѧ����");
@@ -650,14 +662,47 @@ return this.act(lines.join("\n"), loadTuning(this.cfg.dataDir).maxToolRounds);
       writeUnlimited,
       roundsLeft: roundsLimit <= 0 ? Number.MAX_SAFE_INTEGER : Math.max(0, roundsLimit - quotaUsed(this.db, "autonomy")),
       roundsLimit,    };
-  }  /**   * �������һ�֣�û����˵�������Լ�������ʲô��   *   * �� handle �����𣺲�����ԭʼ�Ի����������þ����أ��������ڱ��ʣ���   * ֻ�ѡ��Լ������Լ��Ķ�Ƚ�������   */  async act(instruction: string, maxRounds = 0): Promise<string> {
+  }  /**   * �������һ�֣�û����˵�������Լ�������ʲô��   *   * �� handle �����𣺲�����ԭʼ�Ի����������þ����أ��������ڱ��ʣ���   * ֻ�ѡ��Լ������Լ��Ķ�Ƚ�������   */  /**
+   * 到点的计划主动送一次：不再等「走神刚好没被挡住」。
+   * 返回送出去的文本（没到点就返回空串）。由 bot.ts 的定时器每 90 秒调一次。
+   */
+  async deliverDuePlans(): Promise<string> {
+    try {
+      const due = duePlans(this.db);
+      if (due.length === 0) return "";
+      const block = planPromptBlock(due);
+      for (const p of due) markReminded(this.db, p.id);
+      console.log(`[plan] 送到点的计划 ${due.length} 条：${due.map((p) => p.what.slice(0, 18)).join("、")}`);
+      const out = await this.act(
+        [block, "", "（这是你自己之前定下的计划，到点了。做不做、要不要改时间，你自己定。）"].join("\n"),
+        0,
+      );
+      return String(out ?? "");
+    } catch (err) {
+      console.error("[plan] 送计划提醒失败:", err instanceof Error ? err.message : String(err));
+      return "";
+    }
+  }
+
+  async act(instruction: string, maxRounds = 0, opts: { plans?: boolean } = {}): Promise<string> {
     this.lastActivityAt = Date.now();
     touchActivity(this.lastActivityAt);
+    // 记住「刚才在跟谁说话」：走神想开口时按它选投递目标，别一律发主人私聊
+    try {
+      noteChatTarget({
+        isGroup: Boolean(evt.isGroup),
+        groupId: evt.groupId,
+        userId: evt.userId,
+        userName: String(evt.userName ?? ""),
+      });
+    } catch {
+      // 记不住就算了
+    }
     const budget = this.autonomyBudget();
     const memory = recall(this.db, this.memoryCfg, instruction.slice(0, 60), {
  sessionId: "autonomy" });
     const messages = buildChatPrompt({
-      memory,      userName: "����",      history: [],      message: instruction,      memoryWeak: false,      ...this.promptExtras(),    });
+      memory,      userName: "对方",      history: [],      message: instruction,      memoryWeak: false,      ...this.promptExtras(undefined, opts),    });
     const out = await this.respond(messages, maxRounds);
     return out.text;
   }  /** ÿ�ο���ǰ�����ϣ����Լ�д���������� + ���컹ʣ���ٶ�� */  private promptExtras(evt?: {
@@ -667,7 +712,7 @@ return this.act(lines.join("\n"), loadTuning(this.cfg.dataDir).maxToolRounds);
  userName?: string;
  sender?: {
  card?: string;
- nickname?: string } }): {
+ nickname?: string } }, opts: { plans?: boolean } = {}): {
     toolNames?: string[];
     selfText: string;
     quota: {
@@ -677,14 +722,27 @@ return this.act(lines.join("\n"), loadTuning(this.cfg.dataDir).maxToolRounds);
  writeLimit: number };
     today: {
  watched: string[];
- notes: string[] };
+ notes: string[]; planBlock?: string };
   } {
     return {
-      toolNames: this.tools?.names(),      selfText: readSelf(this.cfg.dataDir),      today: this.todaySnapshot(),      quota: {
+      toolNames: this.tools?.names(),      selfText: readSelf(this.cfg.dataDir),      // 计划表：到点的推到她眼前，然后记一次提醒（下次按间隔再推）
+      planBlock: (() => {
+        if (!opts.plans || evt) return "";
+        try {
+          const due = duePlans(this.db);
+          if (due.length === 0) return "";
+          const block = planPromptBlock(due);
+          for (const p of due) markReminded(this.db, p.id);
+          return block;
+        } catch {
+          return "";
+        }
+      })(),
+      today: this.todaySnapshot(),      quota: {
         videoUsed: quotaUsed(this.db, "video"),        videoLimit: this.cfg.biliDailyVideoQuota,        writeUsed: quotaUsed(this.db, "write"),        writeLimit: this.cfg.biliDailyWriteLimit,      },      // �����뵱ǰ˵���ˣ������� promptExtras ���      // handle() �ߵ����������ŵ��𴦵���û�ӣ�����ӽ���ȹ�����
       scene: (() => {
-        if (!evt?.isGroup) return "˽�ġ�ֻ��������������˵����";
-        return `QQ Ⱥ��Ⱥ�� ${evt.groupId ?? "δ֪"}��������Ⱥ�ģ�����˽�ġ�Ⱥ�ﻹ�б����ڿ���`;
+        if (!evt?.isGroup) return "私聊。只有你和他说话。";
+        return `QQ 群，群号 ${evt.groupId ?? "未知"}。这是群里，不是私聊。群里还有别人在看。`;
       })(),      currentSpeaker: (() => {
         const c = String(evt?.sender?.card ?? "").trim();
         const n = String(evt?.sender?.nickname ?? "").trim();
@@ -781,7 +839,10 @@ return this.act(lines.join("\n"), loadTuning(this.cfg.dataDir).maxToolRounds);
           } catch {
             return [];
           }        })();
-        return [          `QQ Ⱥ��Ⱥ�� ${0 ?? "δ֪"}��������Ⱥ�ģ�����˽�ġ�`,          names.length > 0 ? `��������Ⱥ��˵�������У�${names.join("��")}�����б����ڿ���` : "Ⱥ�ﻹ�б����ڿ���",        ].join("");
+        return [
+          `QQ 群，群号 ${0 ?? "未知"}。这是群里，不是私聊。`,
+          names.length > 0 ? `群里说过话的人有：${names.join("、")}。还有别人在看。` : "群里还有别人在看。",
+        ].join("");
       })(),      stats: this.liveStats(),      alwaysOn: this.alwaysOnMemories(8, ""),      uptime: describeUptime(readUptime(this.cfg.dataDir)),      terms: matchTerms(this.cfg.dataDir, text),      ...this.promptExtras(),    });
     const out = await this.respond(messages);
     let reply = this.stripNamePrefix(out.text);
@@ -795,6 +856,17 @@ return this.act(lines.join("\n"), loadTuning(this.cfg.dataDir).maxToolRounds);
   }  /** һ����Ϣ������������ �� ��һ�� �� ��һ�� */  async handle(evt: IncomingMessage): Promise<string | null> {
     this.lastActivityAt = Date.now();
     touchActivity(this.lastActivityAt);
+    // 记住「刚才在跟谁说话」：走神想开口时按它选投递目标，别一律发主人私聊
+    try {
+      noteChatTarget({
+        isGroup: Boolean(evt.isGroup),
+        groupId: evt.groupId,
+        userId: evt.userId,
+        userName: String(evt.userName ?? ""),
+      });
+    } catch {
+      // 记不住就算了
+    }
     // ˭��˵����QQ �������ݣ��ǳ��ǵȼ۳ƺ�
     try {
       // �����������ˣ�Ⱥ��Ƭ �� QQ�ǳ� �� QQ<��>
@@ -816,7 +888,11 @@ return this.act(lines.join("\n"), loadTuning(this.cfg.dataDir).maxToolRounds);
       this.counters.ignored += 1;
       return null;
     }    // �� [CQ:face,id=467] ������ת���˻��������飺ҡ���֣�    // �����۾���һ��ͼ���ٽ��� CQ ������ͼ�����˻�������֪���Է�����ʲô��
-    const seenText = await describeImagesInText(evt.text, this.cfg.dataDir);
+    const imageFiles: string[] = [];
+        // 上一轮没发出去的图别带到这一轮
+        clearPendingImages();
+        const seenText = await describeImagesInText(evt.text, this.cfg.dataDir, imageFiles, this.cfg);
+        if (imageFiles.length > 0) setPendingImages(imageFiles);
     const text = describeCqCodes(seenText).trim();
     if (text.length === 0) {
       this.counters.ignored += 1;

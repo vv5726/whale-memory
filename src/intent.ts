@@ -18,6 +18,8 @@ export interface Intent {
   message?: string;
   /** 如果是 act，就是要做的那件事 */
   action?: string;
+  /** 可选：这句话说给谁（名字 / QQ 号 / 群号 / 「群里」） */
+  to?: string;
 }
 
 export function parseIntent(raw: string): Intent {
@@ -43,6 +45,7 @@ export function parseIntent(raw: string): Intent {
         goal: String(obj["目的"] ?? obj.goal ?? "").slice(0, 60),
         channel,
         message: typeof obj["消息"] === "string" ? obj["消息"] : typeof obj.message === "string" ? obj.message : undefined,
+        to: typeof obj["给"] === "string" ? obj["给"] : typeof obj.to === "string" ? obj.to : undefined,
         action: typeof obj["动作"] === "string" ? obj["动作"] : typeof obj.action === "string" ? obj.action : undefined,
       };
     } catch {
@@ -53,6 +56,7 @@ export function parseIntent(raw: string): Intent {
   // 纯文本兜底：找「途径：xxx」
   const channelLine = /途径[：:]\s*(内容|聊天|做|算了|none|content|chat|act)/.exec(text);
   const goalLine = /目的[：:]\s*(.+)/.exec(text);
+  const toLine = /给[：:]\s*(.+)/.exec(text);
   const channel = channelLine
     ? channelLine[1]!.includes("聊天")
       ? "chat"
@@ -66,10 +70,11 @@ export function parseIntent(raw: string): Intent {
   return {
     goal: (goalLine?.[1] ?? "").slice(0, 60),
     channel,
+    to: toLine?.[1]?.trim().slice(0, 40),
     message:
       channel === "chat"
         ? text
-            .replace(/目的[：:].+|途径[：:].+/g, "")
+            .replace(/目的[：:].+|途径[：:].+|给[：:].+/g, "")
             .replace(/^\s*消息[：:]\s*/, "")
             .trim()
             .slice(0, 800)

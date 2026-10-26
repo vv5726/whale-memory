@@ -30,7 +30,7 @@ export function registerVerifyTools(registry: ToolRegistry, hooks: { dataDir: st
         const msgs = buildMessages(
           "2000-01-01",
           [{ id: "probe", role: "user", text: "核对用", speakerId: "0" }],
-          { user: "对方", assistant: "凝" },
+          { user: "vv", assistant: "凝" },
           [],
           dataDir,
         );

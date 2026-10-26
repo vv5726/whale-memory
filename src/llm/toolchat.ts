@@ -1,4 +1,5 @@
 import { recordUsage } from "../cost.ts";
+import { injectPendingImages } from "../bot/pending-images.ts";
 import { coerceArgs, type ToolRegistry } from "../tools/registry.ts";
 
 export interface ToolChatConfig {
@@ -41,9 +42,18 @@ export async function runChatWithTools(
   registry: ToolRegistry,
   maxRounds = 0,
 ): Promise<ToolChatResult> {
-  const history: OpenAiMessage[] = messages.map((m) => ({ role: m.role, content: m.content }));
+  // 这一轮如果挂着原图（她刚收到图），注入到最后一条 user 消息里；注入一次就清空
+  const withImages = injectPendingImages(
+    messages as Array<{
+      role: string;
+      content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
+    }>,
+  );
+  const history: OpenAiMessage[] = withImages.map((m) => ({ role: m.role, content: m.content as OpenAiMessage["content"] }));
   // 累计这一整轮的用量，交给记账
   let promptTokens = 0;
+  let cacheHit = 0;
+  let cacheMiss = 0;
   let completionTokens = 0;
   const calls: ToolChatResult["calls"] = [];
   const tools = registry.schema();
@@ -54,7 +64,13 @@ export async function runChatWithTools(
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), cfg.timeoutMs ?? 60_000);
     let payload: {
-      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+      usage?: {
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      total_tokens?: number;
+      prompt_cache_hit_tokens?: number;
+      prompt_cache_miss_tokens?: number;
+    };
       choices?: Array<{
         message?: { content?: string | null; tool_calls?: OpenAiMessage["tool_calls"] };
         finish_reason?: string;
@@ -82,7 +98,7 @@ export async function runChatWithTools(
     const toolCalls = message?.tool_calls ?? [];
 
     if (toolCalls.length === 0) {
-      recordUsage(promptTokens, completionTokens);
+      recordUsage(promptTokens, completionTokens, cacheHit, cacheMiss);
       return { text: (message?.content ?? "").trim(), calls };
     }
 
@@ -127,7 +143,7 @@ export async function runChatWithTools(
       }),
     });
     const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    const tail = (data as { usage?: { prompt_tokens?: number; completion_tokens?: number } }).usage;
+    const tail = (data as { usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_cache_hit_tokens?: number; prompt_cache_miss_tokens?: number } }).usage;
     recordUsage(promptTokens + Number(tail?.prompt_tokens ?? 0), completionTokens + Number(tail?.completion_tokens ?? 0));
     return { text: (data.choices?.[0]?.message?.content ?? "").trim(), calls };
   } finally {

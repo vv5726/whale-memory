@@ -5,6 +5,12 @@ import { registerPhoneGuide, registerPhoneTools } from "./phone.ts";
 import { registerBiliTools } from "./bili.ts";
 import { registerSelfTools } from "./self.ts";
 import { registerLogTools } from "./logs.ts";
+import { registerPersonaTools } from "./persona.ts";
+import { registerToolAuditTools } from "./tool-audit.ts";
+import { registerStickerTools } from "./stickers.ts";
+import { registerThinkTools } from "./think.ts";
+import { registerPlanTools } from "./plans.ts";
+import { registerMemeTools } from "./memes.ts";
 import { registerRosterTools } from "./roster.ts";
 import { registerJournalTools } from "./journal.ts";
 import { registerSelfMemoryTools } from "./selfmemory.ts";
@@ -67,6 +73,8 @@ export function buildTools(
     pin?: (input: { id?: string; title?: string; pin: boolean; expireDays?: number }) => { ok: boolean; text: string };
     about?: (input: { person: string; content: string }) => { ok: boolean; text: string };
     listMemories?: (opts: { limit?: number; kind?: string; sinceDays?: number }) => { rows: Array<{ id: string; title: string; kind: string; tier: string; day: string; pinned: boolean }>; total: number };
+    /** 发一张本地图片到当前对话（表情包用）；没有正在聊的对话时不传 */
+    sendSticker?: (filePath: string) => void | Promise<void>;
     /** 群名册按需刷新（group_members 的 action=sync）；拿不到 OneBot 连接时返回 null */
     rosterRefresh?: (groupId: number) => Promise<number | null>;
   },
@@ -91,6 +99,12 @@ export function buildTools(
   });
 
   registerSelfTools(registry, cfg.dataDir);
+  registerPersonaTools(registry, cfg.dataDir);
+  registerToolAuditTools(registry, { dataDir: cfg.dataDir });
+  registerMemeTools(registry, { dataDir: cfg.dataDir });
+  registerStickerTools(registry, { dataDir: cfg.dataDir, send: memoryHooks?.sendSticker });
+  registerThinkTools(registry, { dataDir: cfg.dataDir });
+  if (db) registerPlanTools(registry, { db, dataDir: cfg.dataDir });
   registerLogTools(registry, cfg.dataDir);
   if (db) registerSelfMemoryTools(registry, db, memoryHooks);
   if (db) registerRosterTools(registry, { db, refresh: memoryHooks?.rosterRefresh });

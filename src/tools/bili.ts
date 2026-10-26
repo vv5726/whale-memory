@@ -281,16 +281,7 @@ export function registerBiliTools(registry: ToolRegistry, opts: BiliOptions): vo
         };
       }
 
-      // 今天已经看过这个就不再花额度——同一个视频看两遍是纯浪费
-      if (opts.db) {
-        const today = new Date().toISOString().slice(0, 10);
-        const seen = opts.db
-          .prepare("SELECT title FROM watched_videos WHERE day = ? AND bvid = ?")
-          .get(today, bvid) as { title: string } | undefined;
-        if (seen) {
-          return { ok: false, text: `「${seen.title || bvid}」今天已经看过了，换一个吧（这次没花额度）` };
-        }
-      }
+      // 看过的可以再看：重看一遍往往比看新的学到更多，不再拦
 
       // 额度：videoQuota <= 0 表示不限量——只记录看过什么，不拦
       const limit = opts.videoQuota ?? 20;

@@ -3,15 +3,18 @@ import { extname, join } from "node:path";
 import { createHash } from "node:crypto";
 import { remember, remembered } from "./vision-cache.ts";
 import { interpretImage } from "./vision-meaning.ts";
+import { loadBotConfig } from "./bot/config.ts";
 
 /**
  * 眼睛。
  *
- * 用本机的 qwen2.5vl:7b 看图，不花钱、不上传。
- * 她收到的图片（群友发的、自己截的屏）都走这里换成文字描述。
+ * 两层：
+ *  1. 描述层（这张图里有什么）——优先 DeepSeek 多模态，失败退回本机 qwen2.5vl:7b；
+ *  2. 意思层（发这张图可能想表达什么）——DeepSeek 想（vision-meaning.ts）。
  *
- * 为什么用 7b 不是 3b：3b 看简单图还行，看截图里的字会漏。
- * 这台机器 31G 内存，跑 7b 没问题。
+ * 为什么先走 DeepSeek：本机 7b 看图会漏字、把「Stickers」读成「Sticker」、
+ * 分不清表情是笑还是嘲；同样的图 DeepSeek 只要 ~200 tokens（一张不到一分钱），
+ * 描述准得多。本地只当断网/没 key 时的兜底——不花钱，但看得糙。
  */
 const OLLAMA = "http://127.0.0.1:11434";
 const MODEL = "qwen2.5vl:7b";
@@ -20,14 +23,76 @@ export interface VisionResult {
   ok: boolean;
   text: string;
   ms: number;
+  /** 哪个后端看的：deepseek / local */
+  backend?: "deepseek" | "local";
 }
 
 function toBase64(file: string): string {
   return readFileSync(file).toString("base64");
 }
 
-/** 用一句话问它图里有什么 */
-export async function describeImage(file: string, prompt = "用两三句话说清这张图：图里有什么、谁在做什么、如果有文字就照抄关键的那几行。"): Promise<VisionResult> {
+function mimeOf(file: string): string {
+  const ext = extname(file).toLowerCase();
+  if (ext === ".png") return "image/png";
+  if (ext === ".gif") return "image/gif";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".bmp") return "image/bmp";
+  return "image/jpeg";
+}
+
+/** DeepSeek 多模态：直接把图发过去看（比本地 7b 准得多） */
+export async function describeImageDeepSeek(
+  file: string,
+  prompt: string,
+  cfgOverride?: { deepseekBaseUrl?: string; deepseekApiKey?: string; deepseekModel?: string },
+): Promise<VisionResult> {
+  const start = Date.now();
+  let cfg: { deepseekBaseUrl: string; deepseekApiKey: string; deepseekModel: string };
+  try {
+    cfg = cfgOverride ? { deepseekBaseUrl: cfgOverride.deepseekBaseUrl ?? "https://api.deepseek.com/v1", deepseekApiKey: cfgOverride.deepseekApiKey ?? "", deepseekModel: cfgOverride.deepseekModel ?? "deepseek-chat" } : loadBotConfig();
+  } catch {
+    return { ok: false, text: "读不到配置", ms: 0 };
+  }
+  if (!cfg.deepseekApiKey) return { ok: false, text: "没配 key", ms: 0 };
+
+  try {
+    const res = await fetch(`${cfg.deepseekBaseUrl.replace(/\/$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${cfg.deepseekApiKey}` },
+      body: JSON.stringify({
+        model: cfg.deepseekModel,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              { type: "image_url", image_url: { url: `data:${mimeOf(file)};base64,${toBase64(file)}` } },
+            ],
+          },
+        ],
+        max_tokens: 400,
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      return { ok: false, text: `DeepSeek 看图报错 ${res.status}：${body.slice(0, 120)}`, ms: Date.now() - start };
+    }
+    const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } };
+    const text = String(json.choices?.[0]?.message?.content ?? "").trim();
+    if (text.length === 0) return { ok: false, text: json.error?.message ?? "模型没说话", ms: Date.now() - start };
+    return { ok: true, text, ms: Date.now() - start, backend: "deepseek" };
+  } catch (err) {
+    return { ok: false, text: `DeepSeek 看图失败：${err instanceof Error ? err.message : String(err)}`, ms: Date.now() - start };
+  }
+}
+
+/** 用一句话问它图里有什么：先 DeepSeek，失败退回本地 7b */
+export async function describeImage(
+  file: string,
+  prompt = "用两三句话说清这张图：图里有什么、谁在做什么、如果有文字就照抄关键的那几行。",
+  cfgOverride?: { deepseekBaseUrl?: string; deepseekApiKey?: string; deepseekModel?: string },
+): Promise<VisionResult> {
   const start = Date.now();
 
   if (!existsSync(file)) {
@@ -37,6 +102,20 @@ export async function describeImage(file: string, prompt = "用两三句话说�
   if (![".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"].includes(ext)) {
     return { ok: false, text: `这个不是图片：${ext}`, ms: 0 };
   }
+
+  // ① 先让更准的看
+  const remote = await describeImageDeepSeek(file, prompt, cfgOverride);
+  if (remote.ok) return { ...remote, ms: Date.now() - start };
+
+  // ② 兜底：本地 qwen2.5vl
+  const local = await describeImageLocal(file, prompt);
+  if (local.ok) return { ...local, ms: Date.now() - start, backend: "local" };
+  return { ok: false, text: `${remote.text}；本地也没看成：${local.text}`, ms: Date.now() - start };
+}
+
+/** 本机 qwen2.5vl 看图（不花钱、不上传，但会漏字） */
+export async function describeImageLocal(file: string, prompt = "用两三句话说清这张图：图里有什么、谁在做什么、如果有文字就照抄关键的那几行。"): Promise<VisionResult> {
+  const start = Date.now();
 
   try {
     const body = {
@@ -62,7 +141,7 @@ export async function describeImage(file: string, prompt = "用两三句话说�
     const text = String(json.response ?? "").trim();
     if (text.length === 0) return { ok: false, text: "模型没说话", ms: Date.now() - start };
 
-    return { ok: true, text, ms: Date.now() - start };
+    return { ok: true, text, ms: Date.now() - start, backend: "local" };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("ECONNREFUSED")) return { ok: false, text: "眼睛没启动（Ollama 没跑）", ms: Date.now() - start };
@@ -82,7 +161,12 @@ export function imageSourceFromCq(cq: string): string | null {
   return null;
 }
 
-export async function describeImagesInText(text: string, dataDir: string): Promise<string> {
+export async function describeImagesInText(
+  text: string,
+  dataDir: string,
+  sink?: string[],
+  cfgOverride?: { deepseekBaseUrl?: string; deepseekApiKey?: string; deepseekModel?: string },
+): Promise<string> {
   const codes = /\[CQ:image,([^\]]*)\]/g;
   const found: Array<{ full: string; url: string; summary: string }> = [];
   let m: RegExpExecArray | null;
@@ -112,11 +196,13 @@ export async function describeImagesInText(text: string, dataDir: string): Promi
       const file = join(dataDir, "images", hash + ".jpg");
       mkdirSync(join(dataDir, "images"), { recursive: true });
       writeFileSync(file, buf);
+      // 把原图路径交给调用方：这一轮聊天时当多模态图片一起发（历史里只留文字描述）
+      if (sink) sink.push(file);
       // 描述层：十分钟内见过就复用，不重复跑千问（省钱省时间），
       // 但事实和意思照样各出一条——发第二次也是一种表达。
       let desc = remembered(dataDir, hash) ?? "";
       if (desc.length === 0) {
-        const r = await describeImage(file);
+        const r = await describeImage(file, undefined, cfgOverride);
         // 眼睛没起来的时候别把原因吞成「看不清」——她会照着说「图太糊」，
         // 而真相是本地模型没跑（2026-10-26：Ollama 端口没监听、模型目录是空的）。
         desc = r.ok

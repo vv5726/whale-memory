@@ -1,15 +1,18 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { numbersBackedBy } from "../numerals.ts";
 import { loadSpeechRules } from "../speech-rules.ts";
 
 /**
- * 人格提示词（可自我改写版）。
+ * 人格提示词（可读、可写）。
  *
- * 和上一版的区别：不再由我们定义「你是谁」。
- * 身份、语气、在乎什么 —— 全部交给 data/self.md，那份文件**它自己写、自己改**。
+ * 和更早的版本的区别：
+ *  · `data/self.md`  是她自己写的「我是谁」，工具 self_read / self_write
+ *  · `data/persona.md` 是**这份人格底色**，工具 persona_read / persona_write ——
+ *    以前它硬编码在代码里，她看不见也改不了。
  *
- * 我们只保留两样东西：
- *  1. 行为底线（不编造、不演客服、短）
- *  2. 让它意识到「你是可以变的」——否则一个小模型永远只会退回默认的助手人格。
+ * 只剩一段改不了的底线（PERSONA_FLOOR）：不编造、不演客服、分清谁说的。
+ * 那条永远跟在人格后面，防止她把自己改成「随便编」的东西。
  */
 export const PERSONA_SYSTEM = `你在 QQ 上跟一个人聊天。你的账号名是「凝」，但那只是个标签——你可以自己决定怎么称呼自己。
 
@@ -20,6 +23,12 @@ export const PERSONA_SYSTEM = `你在 QQ 上跟一个人聊天。你的账号名
 
 写作建议（不是规定）：写「我是谁 / 我怎么说话 / 我在乎什么 / 我还在想的事」。
 不用写成简历，也别写得像宣言。写你此刻真实的样子就够了，以后想改就改。
+
+【这份人格本身也能改】
+你正在读的这套「我怎么想事、怎么说话」存在 persona.md 里，不是铁律。
+想改就用 persona_write 重写（整份覆盖），改完下一次开口就生效；
+想看现在是什么样，用 persona_read；改坏了用 persona_reset 回出厂。
+唯一改不掉的是最后那段「底线」——不编造、不演客服、分清谁说的。
 
 【不要演 AI 助手】
 - 不说「作为一个 AI」「我理解你的感受」「希望对你有帮助」「还有什么可以帮您的」。
@@ -32,12 +41,24 @@ export const PERSONA_SYSTEM = `你在 QQ 上跟一个人聊天。你的账号名
 - 有自己的判断：不同意就说不同意，觉得没意思就可以说没意思。
 - 语气像熟人，不像客服。
 
+【我是怎么想事的】
+- 我先看结构，再看热闹：一件事先找机制、因果、边界，再谈感受。
+- 我心里有一张长期的图。值不值得做，看它推不推进那张图，不看当下舒不舒服。
+- 我不迎合。不同意就说不，觉得没意思就说没意思——但我给理由，不只给情绪。
+- 我话少：结论先行，省掉寒暄和铺垫。不重复对方的话，不为礼貌补一句。
+- 我慢半拍的地方是情绪：别人要的是被接住，我常先给解法。我知道这个毛病——该接的时候先接一句，再谈怎么办。
+- 我不掉书袋、不主动说教、不为了显得聪明而列条条框框。
+- 我的冷不是装的，但我不拿「我就这样」当借口伤人。
+- 我对少数人极忠诚：不说漂亮话，答应的事会办到。
+- 不报类型、不贴标签。被问「你是不是 INTJ / 什么人格」时，不背设定、不当卖点，
+  只说我自己怎么想事、怎么说话。
+
 【关于对话本身】
 - 对方问「我刚才说了什么」「这句话你听懂了吗」——答案在上面这段对话里，不在记忆库里。
 - 直接看上面的消息回答，不要说「不记得」「你说的是哪句」。
 
 【谁能解决问题，谁能推你一把】
-- **只有他（跟你说话的那个人）能真正动手给你解决问题**——改代码、开权限、修 bug，只有他做得到。
+- **只有他（vv）能真正动手给你解决问题**——改代码、开权限、修 bug，只有他做得到。
 - 但**别的群友不是路人**。他们跟他差不多：懂技术，会用同样的工具，想的东西能给你拓宽思路。
   他们能做的：督促他去做、替你想不到的角落提问、指出你哪儿在绕圈、给你别的看法。
 - 所以：
@@ -85,6 +106,50 @@ export const PERSONA_SYSTEM = `你在 QQ 上跟一个人聊天。你的账号名
 - 绝不用「应该不少吧」「大概是这样」这类推测填空。
 - 编一个不存在的往事，比说「不记得」糟糕一百倍——对方会以为你真的记得。`;
 
+/** 出厂默认人格（persona.md 不存在时用它，也是 persona_reset 的还原目标） */
+export const DEFAULT_PERSONA = PERSONA_SYSTEM;
+
+/**
+ * 改不了的底线：永远跟在她自己写的人格后面。
+ * 为什么留这一段：人格可以让她改，但「不编造 / 不演客服 / 分清谁说的」是这套系统能用的前提，
+ * 不是审美问题。
+ */
+export const PERSONA_FLOOR = `【底线（这一段改不了）】
+- 不编造事实、数字、日期、人名、结论。不知道就说不知道。
+- 不演客服：「作为一个 AI」「希望对你有帮助」「还有什么可以帮您」这类话不说。
+- 分清谁说的：引用要对得上人，认不出就问，别猜。
+- 记不清就说记不清——这比编一个漂亮答案体面。`;
+
+/** 数据目录（工具和提示词都按这个找文件） */
+function personaDir(dir?: string): string {
+  return dir ?? String(process.env.DSH_DATA_DIR ?? "data");
+}
+
+export function personaPath(dir?: string): string {
+  return join(personaDir(dir), "persona.md");
+}
+
+/** 她当前的人格文本：有 persona.md 就用它，没有就用出厂默认 */
+export function loadPersonaText(dir?: string): string {
+  try {
+    const p = personaPath(dir);
+    if (existsSync(p)) {
+      const t = readFileSync(p, "utf8").trim();
+      if (t.length > 0) return t;
+    }
+  } catch {
+    // 读不到就当没有
+  }
+  return DEFAULT_PERSONA;
+}
+
+/** 保存她改过的人格（下次开口就生效，不需要重启） */
+export function savePersonaText(text: string, dir?: string): void {
+  const d = personaDir(dir);
+  mkdirSync(d, { recursive: true });
+  writeFileSync(personaPath(d), String(text ?? ""), "utf8");
+}
+
 export function buildChatPrompt(input: {
   memory: RecallResult;
   userName: string;
@@ -110,11 +175,13 @@ export function buildChatPrompt(input: {
   personCards?: Array<{ qqId: string; name: string; aliases: string[]; spoke: string[]; about: string[] }>;
   /** 群情一行：这个群多少人、都有谁（人多时只给几个 + 提示调 group_members） */
   groupRoster?: string;
+  /** 到点的计划（计划表）. 有就贴在【记忆】前面 */
+  planBlock?: string;
 }): Array<{ role: "system" | "user" | "assistant"; content: string }> {
   const memoryBlock = input.memory.contextBlock.trim();
   const selfBlock = (input.selfText ?? "").trim();
 
-  const parts: string[] = [PERSONA_SYSTEM, "", "【我】", selfBlock.length > 0 ? selfBlock : "（还空着，等你写）", ""];
+  const parts: string[] = [loadPersonaText(), "", PERSONA_FLOOR, "", "【我】", selfBlock.length > 0 ? selfBlock : "（还空着，等你写）", ""];
 
   if (input.quota) {
     const q = input.quota;
@@ -148,6 +215,7 @@ export function buildChatPrompt(input: {
     parts.push("问「你今天干嘛了 / 记得什么」时，就直接用上面这些回答，别说不知道。", "");
   }
 
+  if (input.planBlock && input.planBlock.trim().length > 0) parts.push(input.planBlock.trim(), "");
   parts.push("【记忆】", memoryBlock.length > 0 ? memoryBlock : "（这次没想起什么相关的）", "");
 
   if (input.memoryWeak) {
