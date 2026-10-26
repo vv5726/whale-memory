@@ -25,7 +25,7 @@ try {
 
   // ④ 真正回一轮
   const reply = await svc.handle({
-    userId: 1554193698,
+    userId: cfg.ownerQq,
     selfId: cfg.selfId,
     userName: "vv",
     text: "自测：你记得我们刚才在弄什么吗",
