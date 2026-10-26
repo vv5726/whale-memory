@@ -2,6 +2,10 @@
 
 一个住在 QQ 里的长期陪伴型 AI。不是通用助手，是「有个性、有记忆、会自己找事做」的那种存在。
 
+![和主流方案的区别](assets/comparison.png)
+
+对比细节：[docs/COMPARISON.md](docs/COMPARISON.md) · 30 秒演示：[docs/DEMO.md](docs/DEMO.md)（`node demo/recall-demo.ts`）
+
 ## 它有什么
 
 - **分层记忆**：detailed → compressed → fossil → cold，按预算下沉，不是按时间遗忘
