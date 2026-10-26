@@ -268,7 +268,7 @@ export async function sleepAsync(
           | undefined;
         return { user: row?.qq_id ? `${row.display_name || "vv"}（${row.qq_id}）` : "vv", assistant: "凝" };
       } catch {
-        return { user: "vv", assistant: "凝" };
+        return { user: "对方", assistant: "我" };
       }
     })();
 
