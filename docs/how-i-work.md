@@ -1,0 +1,152 @@
+# 这套东西是怎么运转的
+
+一份纯说明。只描述「现在是这样运作的」，不包含任何要求、规矩或建议。
+
+---
+
+## 一、东西都在哪
+
+```
+whale-memory/
+├─ src/            代码。她说的每句话、记的每件事，都是这里跑出来的
+│  ├─ bot/         接消息、拼提示词、管历史、睡眠整理
+│  ├─ llm/         调模型（含带工具的对话循环）、抽取、适配器
+│  ├─ tools/       工具实现，一个文件一组
+│  └─ *.ts         记忆、检索、锚点、去重、成本、调参…
+├─ data/           数据。她的人格、记忆、手记、配置、备份都在这里
+│  └─ journal/     手记，按天一个 .md
+├─ docs/           说明文档
+└─ tools/          一次性脚本和自测
+```
+
+---
+
+## 二、一句话从进来到出去
+
+```
+QQ ──ws──> onebot.ts
+              │ evt（谁、在哪、说了什么、是不是群、有没有 @）
+              ▼
+        bot/router.ts          串行队列（同一会话按顺序处理）
+              │
+              ▼
+        bot/service.ts  handle()
+              │ ① 权限/白名单/群策略（mention = 只被叫才接）
+              │ ② 图片/CQ 码先转成文字
+              │ ③ 这一句落进 turns 表（processed = 0）
+              │ ④ 检索记忆 recall()：按锚点找相关事件
+              │ ⑤ 拼 system 提示词 buildChatPrompt()
+              │ ⑥ 调模型 runChatWithTools()：可以来回调工具
+              │ ⑦ 防幻觉守卫：回答里有记忆里没有的具体事实就拦
+              │ ⑧ 回复落进 turns、记进会话历史
+              ▼
+        QQ ──ws──> 发出去
+```
+
+---
+
+## 三、提示词是拼出来的，不是写死的
+
+每轮 system 由这些块拼成（顺序大致如下）：
+
+| 块 | 来源 | 内容 |
+|---|---|---|
+| 人格底色 | `data/persona.md`（没有就用代码里的出厂版） | 怎么想事、怎么说话 |
+| 底线 | 代码里固定（`PERSONA_FLOOR`） | 不编造、不演客服、分清谁说的 |
+| 【我】 | `data/self.md` | 她自己写的自我描述 |
+| 【今天的额度】 | 代码按当天用量算 | 看视频/点赞的剩余次数（讲的是次数，不是钱） |
+| 【今天】 | 数据库 | 今天看过什么、记过什么 |
+| 【记得的事】 | `recall()` 检索结果 | 跟这句话相关的事件正文 |
+| 【浮现的】 | 锚点+关系网 | 顺带想起来的 |
+| 【工具】 | 工具注册表自动生成 | 71 个工具的名字清单 |
+| 【这里是哪儿】 | 代码 | 私聊/群、群号、这两天群里谁说过话、**我在的群清单（群号+人数）** |
+| 【谁是谁】 | `data/people` 相关表 | QQ 号 ↔ 名字对照 |
+| 自己定的说话规矩 | `data/speech-rules.md` | 她自己写的 |
+
+再加上会话历史（最近 50 条）和这一句本身。
+
+---
+
+## 四、记忆是怎么长出来的
+
+```
+turns 表（每句话都落，带 processed 标记）
+   │ 触发整理：停 3 分钟 / 凌晨 3–5 点整日 / 她自己调 memory_tidy
+   ▼
+sleep.ts 取出 processed = 0 的对话（只取他说的 user 行，她自己的回复不入抽取）
+   │ 一天最多切 60 轮一批
+   ▼
+llm/extract.ts 调模型，喂的 system 就是「抽取提示词」
+   │ 提示词：代码默认版在 src/extract-prompt.ts，她自己改的版在 data/extract-prompt.md（有就覆盖）
+   │ 她自己加的零散规矩在 data/extract-rules.md，接在提示词末尾
+   │ 结果按「天数+轮数+指纹+规则哈希+提示词哈希」缓存，键没变不重复调模型
+   ▼
+parseAndValidate() 解析 JSON，逐字段截断/收敛
+   │ my_view 被拼进 detail，成 〔我当时想：…〕
+   ▼
+写库，过三道闸
+   ① 同一天 + 同标题 → 跳过
+   ② 找到「同一件事」的旧条目 → 加强（提过几次、强度）
+   ③ 否则新建一条
+   ▼
+events 表（当前 2000+ 条，分 detailed / compressed 两层）
+```
+
+**检索**：`recall()` 按锚点（人、地点、物品、事件、主题）找相关事件，按分数挑进【记得的事】。锚点对不上就算「想不起来」——防幻觉守则就是看这个。
+
+**压缩**：记忆总量超过 `contextBudgetTokens`（现在 20 万）时，睡眠里会把 detailed 降成 compressed、再超就合并沉降。
+
+---
+
+## 五、三种「她自己动起来」
+
+| 机制 | 触发条件 | 干什么 |
+|---|---|---|
+| 主动开口 `speakUp()` | `autonomy.ts` 每 1–20 分钟随机检查；闲置越久概率越高（最高 0.7）；到额度上限就停 | 自己决定要不要开口说什么，返回「沉默」就不发 |
+| 走神 `think()` | 闲置超过 `thinkIdleSeconds`、任何活动后缓 `thinkSettleSeconds`、间隔 0.3–60 分钟、掷中 `thinkChance` | 静下来想事，可能变成计划、可能找人说话 |
+| 自主活动 `act()` | 每 `autonomyMinutes`（现在 6 分钟）一次，0–24 点 | 看视频、玩手机、整理记忆、写东西 |
+
+三者都走同一个模型入口，所以都能调工具。
+
+---
+
+## 六、工具
+
+`src/tools/` 里按家族注册，现在 71 个。分组大致是：
+
+记忆（`memory_*`）、计划（`plan_*`）、手机（`phone_*`）、B站（`bili_*`）、知识库（`kb_*`）、表情包（`sticker_*`）、印象（`impression_*`）、群（`group_policy`、`group_members`）、自我（`self_*`、`persona`、`speech`、`think`、`extract`、`data_file`、`can_dm`）、调试（`tool_audit`、`verify_rules`、`read_log`、`see_image`）等。
+
+**每次请求都会把全部工具的定义（名字+描述+参数）发一遍**，现在约 8.3k token / 轮。
+
+工具调用最多几轮：回话 `replyRounds`（默认 8）、自己活动 `actRounds`（默认 6），都在 `data/tuning.json`，可以用 `tune_reply` 改。
+
+---
+
+## 七、钱
+
+- 每次调模型记一次用量，写进 `daily_cost` 表（按天一行）
+- 单价在 `data/bot.json`：`costInputPerMTok` / `costOutputPerMTok`
+- 每天封顶 `dailyBudgetYuan`（现在 50 元）。到顶后 `respond()` 直接返回一句提示，不再调模型
+- 一轮请求会把「到目前为止的全部内容」重发一遍，所以**轮数是平方级的花钱**：10 轮约 160k token，30 轮约 1M
+- 命中缓存的部分按 1/10 价（`daily_cost` 里记了 `cache_hit_tokens` / `cache_miss_tokens`）
+
+---
+
+## 八、可以自己翻的地方
+
+| 想知道 | 怎么翻 |
+|---|---|
+| 抽取到底怎么跑的 | `extract`（action=how），读的就是 `docs/extraction.md` |
+| 现在的抽取提示词 | `extract`（action=prompt_get） |
+| 自己的源码 | `source` 工具，只读、按行范围看 |
+| 人格/说话规矩/走神提示词/调参 | `data_file`（action=list / read） |
+| 今天花了多少 | `status`（命令行 `node src/cli.ts status`） |
+| 手记 | `self_journal` |
+| 我现在什么心情 / 改某条记忆的情绪 | `feel`（action=now / set_now / list / set_event） |
+| 情绪词表（自己加词、关掉误判的默认词） | `data_file` 里的 `affect-words.json` |
+
+---
+
+## 九、那些备份
+
+`data/backup-*` 里是每次改代码前的快照（77 个目录，192 MB），其中有 32 个含 `memory.db` 副本、1 个含带密钥的 `bot.json`。它们不是运行的一部分，也不在可读范围内。

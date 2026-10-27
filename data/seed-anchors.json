@@ -1,0 +1,21 @@
+{
+  "anchors": [
+    { "name": "王建国", "kind": "person", "aliases": ["老王", "建国", "王哥"] },
+    { "name": "林溪", "kind": "person", "aliases": ["溪溪", "女朋友"] },
+    { "name": "妈妈", "kind": "person", "aliases": ["我妈", "母亲"] },
+    { "name": "团子", "kind": "thing", "aliases": ["猫", "那只猫"] },
+    { "name": "大学", "kind": "place", "aliases": ["学校", "母校"] },
+    { "name": "宿舍", "kind": "place", "aliases": ["宿舍楼下", "寝室"] },
+    { "name": "医院", "kind": "place", "aliases": ["住院部"] },
+    { "name": "公司", "kind": "place", "aliases": ["上班", "单位"] },
+    { "name": "甲状腺手术", "kind": "event", "aliases": ["手术", "结节"] },
+    { "name": "跳槽", "kind": "theme", "aliases": ["跳槽", "换工作", "面试"] },
+    { "name": "考研", "kind": "theme", "aliases": ["考研", "初试"] },
+    { "name": "搬家", "kind": "event", "aliases": ["搬家", "新住处"] },
+    { "name": "升职", "kind": "theme", "aliases": ["升职", "带团队"] },
+    { "name": "云南", "kind": "place", "aliases": ["云南", "大理", "丽江"] },
+    { "name": "还钱", "kind": "theme", "aliases": ["两千", "还钱", "欠"] },
+    { "name": "火锅", "kind": "thing", "aliases": ["火锅"] },
+    { "name": "打印店", "kind": "place", "aliases": ["打印店"] }
+  ]
+}

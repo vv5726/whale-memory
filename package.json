@@ -1,0 +1,20 @@
+﻿{
+  "name": "whale-memory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "人类式遗忘记忆原型：分层压缩 + 锚点联想 + 概率情绪采样 + 睡眠整合",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "init": "node src/cli.ts init",
+    "demo": "node src/demo.ts",
+    "eval": "node src/cli.ts eval",
+    "status": "node src/cli.ts status",
+    "bot": "node src/bot.ts",
+    "bot:smoke": "node tools/bot-smoke.ts",
+    "compare": "node tools/compare-extractors.ts"
+  }
+}
+

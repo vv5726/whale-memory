@@ -1,0 +1,18 @@
+# ── 运行时数据：她的记忆、你的密钥、日志、截图，一律不进仓库 ──
+# data/ 下有 memory.db（全部对话与记忆）、bot.json（含 API key / QQ token）、
+# knowledge.json、persona.md、self.md、journal/、logs/、screenshots/、
+# 以及一堆 backup-*.db。这些是个人数据，不是代码。
+data/*
+!data/bot.example.json
+# 演示用的种子：纯虚构（王建国/林溪/团子…），demo 和 selftest 都要读它
+!data/seed-anchors.json
+
+# ── 依赖 / 构建产物 ──
+node_modules/
+dist/
+*.log
+
+# ── 系统 ──
+.DS_Store
+Thumbs.db
+desktop.ini

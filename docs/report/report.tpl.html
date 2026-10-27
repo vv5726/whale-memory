@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>这套记忆为什么能记很久</title>
+<style>
+  :root{
+    --ink:#1c2026; --muted:#6e7681; --line:#e6e9ef; --bg:#fbfcfe;
+    --blue:#2f6fed; --orange:#e89418; --purple:#7a5af8; --green:#16a064; --red:#c83c3c;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.75 "Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:56px 28px 96px}
+  h1{font-size:40px; line-height:1.25; margin:0 0 10px; letter-spacing:-.5px}
+  .lede{color:var(--muted); font-size:19px; margin:0 0 36px}
+  h2{font-size:26px; margin:56px 0 14px; padding-top:20px; border-top:1px solid var(--line)}
+  h2 .no{color:var(--blue); font-size:18px; margin-right:10px; font-weight:700}
+  h3{font-size:19px; margin:28px 0 8px}
+  p{margin:10px 0}
+  .card{background:#fff; border:1px solid var(--line); border-radius:14px; padding:22px 24px; margin:18px 0}
+  .quote{border-left:4px solid var(--blue); background:#f4f8ff; padding:16px 20px; border-radius:0 12px 12px 0; margin:18px 0}
+  table{border-collapse:collapse; width:100%; margin:16px 0; font-size:15px; background:#fff}
+  th,td{border:1px solid var(--line); padding:10px 12px; text-align:left; vertical-align:top}
+  th{background:#f6f8fb; font-weight:700}
+  td.num{font-variant-numeric:tabular-nums; white-space:nowrap}
+  figure{margin:26px 0}
+  figure img{width:100%; border:1px solid var(--line); border-radius:14px; display:block}
+  figcaption{color:var(--muted); font-size:14px; margin-top:10px; text-align:center}
+  .kpi{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin:22px 0}
+  .kpi div{background:#fff; border:1px solid var(--line); border-radius:14px; padding:18px}
+  .kpi b{display:block; font-size:30px; line-height:1.2; letter-spacing:-.5px}
+  .kpi span{color:var(--muted); font-size:13px}
+  .kpi .b{color:var(--blue)} .kpi .o{color:var(--orange)} .kpi .p{color:var(--purple)} .kpi .g{color:var(--green)}
+  code{background:#eef1f6; padding:2px 6px; border-radius:5px; font-size:14px}
+  .flow{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:18px 0; font-size:15px}
+  .flow span{padding:8px 14px; border-radius:999px; background:#eef3ff; color:var(--blue); font-weight:700}
+  .flow i{color:var(--muted); font-style:normal}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:18px}
+  .muted{color:var(--muted)}
+  @media (max-width:840px){ .kpi{grid-template-columns:1fr 1fr} .grid2{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>这套记忆为什么能记很久</h1>
+<p class="lede">三层降级 + 原文兜底 + 关系网限流：越旧的东西越省地方，但一条都不会真的消失。</p>
+
+<div class="kpi">
+  <div><b class="b">3.7 天</b><span>能想起细节的时间</span></div>
+  <div><b class="o">12.6 天</b><span>能想起「有这件事」</span></div>
+  <div><b class="p">3.8 年</b><span>只剩感受和片段</span></div>
+  <div><b class="g">永久</b><span>原文全文（占 0.9 GB）</span></div>
+</div>
+
+<h2><span class="no">01</span>一句话：它不是「存不下」，是「有意识地变模糊」</h2>
+<p>每多记一层，一条记忆就掉一层皮，体积随之掉一截。所以同样一块地方，越旧的内容越省，装下的时间就越长。</p>
+<div class="flow">
+  <span>第一层 113 token</span><i>→ 丢正文 →</i><span>第二层 55 token</span><i>→ 丢前因后果 →</i><span>第三层 40 token</span>
+</div>
+<p class="muted">记忆条数不变，但每条占的地方变成原来的一半、再变成三分之一。这就是它能撑三年多的算术原因。</p>
+
+<figure>
+  <img src="{{IMG_LIFE}}" alt="一条记忆的一生">
+  <figcaption>同一条记忆的四个阶段：谁丢了什么、每条还占多少 token</figcaption>
+</figure>
+
+<h2><span class="no">02</span>三层各留什么、丢什么</h2>
+<table>
+  <thead>
+    <tr><th>层</th><th>保留</th><th>丢掉</th><th>每条体积</th><th>容量上限</th><th>能撑多久</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><b>第一层</b><br>detailed</td>
+      <td>标题、正文、前因、后果、核心片段、情绪、关键事实</td>
+      <td>—</td>
+      <td class="num">113 token</td>
+      <td class="num">2,648 条</td>
+      <td class="num">3.7 天</td>
+    </tr>
+    <tr>
+      <td><b>第二层</b><br>compressed</td>
+      <td>标题、核心片段、情绪、关键事实</td>
+      <td>正文 <code>detail</code></td>
+      <td class="num">55 token</td>
+      <td class="num">9,035 条</td>
+      <td class="num">12.6 天</td>
+    </tr>
+    <tr>
+      <td><b>第三层</b><br>fossil</td>
+      <td>感受、一个片段、标题</td>
+      <td>前因、后果</td>
+      <td class="num">40 token</td>
+      <td class="num">1,000,000 条</td>
+      <td class="num">≈1,400 天</td>
+    </tr>
+    <tr>
+      <td><b>底片</b><br>cold_archive</td>
+      <td><b>原文全文</b>（压掉的那些）</td>
+      <td>不参与检索，不占上下文</td>
+      <td class="num">0.3 KB</td>
+      <td class="num">磁盘</td>
+      <td class="num">永久</td>
+    </tr>
+  </tbody>
+</table>
+
+<figure>
+  <img src="{{IMG_CAP}}" alt="三层容量">
+  <figcaption>三层能装的条数（对数刻度）——第三层比第一层大 378 倍</figcaption>
+</figure>
+
+<h2><span class="no">03</span>为什么「越往下越便宜」是这套系统能长久的关键</h2>
+<p>不是玄学，是三处硬编码的取舍：</p>
+<div class="grid2">
+  <div class="card">
+    <h3>① 正文最贵，最先丢</h3>
+    <p>一条记忆 113 token 里，有 58 是正文。丢掉正文 → 55 token，<b>直接省一半</b>。而「有这件事」这个信息还在。</p>
+  </div>
+  <div class="card">
+    <h3>② 前因后果也贵，第二个丢</h3>
+    <p>再丢掉前因 + 后果 → 40 token，<b>又省 27%</b>。剩下的「感受 + 一个画面」正好是人回忆很久以前的方式。</p>
+  </div>
+</div>
+<p>所以同一个 1,000,000 token 的池子：</p>
+<ul>
+  <li>如果全都按第一层存，只能装约 <b>8,800 条</b>（714 条/天 → <b>12 天</b>）</li>
+  <li>三层摊开之后，能装 <b>约 101 万条</b>（→ <b>3.9 年</b>）</li>
+</ul>
+<div class="quote"><b>差 114 倍。</b>这不是压缩算法的功劳，是「允许自己忘得越来越粗」换来的。</div>
+
+<h2><span class="no">04</span>不会爆的原因：预算只在「活跃的部分」上花</h2>
+<p>她说话时往提示词里塞的只有第一层 + 一小撮第二层。第三层（<code>archived=1</code>）根本不进上下文，所以不吃 token 预算，只吃磁盘。</p>
+<table>
+  <thead><tr><th>项</th><th>数值</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td>上下文预算</td><td class="num">1,000,000 token</td><td>第一层 30% + 第二层 50%</td></tr>
+    <tr><td>第三层</td><td class="num">1,000,000 条（≈0.9 GB）</td><td><b>不占上下文预算</b>，只按条数封顶</td></tr>
+    <tr><td>每次对话实际 prompt</td><td class="num">≈4,200 token</td><td>记忆块另有 1,200 token 上限</td></tr>
+    <tr><td>进料速度</td><td class="num">714 条/天</td><td>实测最近三天：239 / 1,341 / 563</td></tr>
+  </tbody>
+</table>
+<p class="muted">换句话说：<b>池子的大小决定「能想多细」，进料速度决定「多久填满一层」</b>，两者分开管，才不会被日常对话挤爆。</p>
+
+<h2><span class="no">05</span>关系网（边）也不会无限涨</h2>
+<p>记忆之外还有一张锚点关系网。它最容易被灌爆——「同一天出现过」的边是 <code>n×(n-1)/2</code> 条，一天 100 个锚点就是 5,000 条。</p>
+<p>现在按「这条边挂着的记忆在哪一层」分三档处理：</p>
+<table>
+  <thead><tr><th>边</th><th>半衰期</th><th>底线</th><th>上限</th><th>现在</th></tr></thead>
+  <tbody>
+    <tr><td><b>热边</b>（还挂着第一层记忆）</td><td class="num">15 天</td><td class="num">0.05</td><td>不设上限</td><td class="num">1,785 条</td></tr>
+    <tr><td><b>温边</b>（只剩第二层）</td><td class="num">3 天</td><td class="num">0.10</td><td class="num">超 20,000 → 砍到 50%</td><td class="num">9,269 条</td></tr>
+    <tr><td><b>冷边</b>（只剩第三层）</td><td class="num">2 天</td><td class="num">0.20</td><td class="num">超 2,000 → 砍到 50%</td><td class="num">1,102 条</td></tr>
+  </tbody>
+</table>
+<p>外加两条：<b>热转温那一刻，新变温的边只留 25%</b>；<code>co-occur</code>（真共现）不参与削减。实测把 27,807 条温边删掉，7 个测试查询的召回条数<b>一条没变</b>。</p>
+
+<figure>
+  <img src="{{IMG_HALF}}" alt="边的半衰期">
+  <figcaption>三档半衰期：热边 15 天、温边 3 天、冷边 2 天；碰到各自底线就删除</figcaption>
+</figure>
+
+<h2><span class="no">06</span>原文永远不会丢：底片机制</h2>
+<p>每次把一条记忆往下压之前，先把它的全文写进 <code>cold_archive</code>，留一个地址：<code>cold://ev_xxxxxxxx</code>。</p>
+<ul>
+  <li>平时不读 → <b>不占 token</b></li>
+  <li>真需要时按地址取回 → <b>原文一字不少</b></li>
+  <li>关键词撞上了还会被"唤醒"（coldHints）</li>
+</ul>
+<p>所以「记不清细节」和「找不回来」是两件事。现在底片里有 <b>1,600 条原文、共 16.7 万字</b>。</p>
+
+<h2><span class="no">07</span>磁盘账：一年约 226 MB</h2>
+<figure>
+  <img src="{{IMG_DISK}}" alt="磁盘增长">
+  <figcaption>按每天 714 条、每条 0.9 KB 算：一年约 226 MB，1 GB 约 4.5 年才碰到</figcaption>
+</figure>
+<p class="muted">实际还更省：冷存储原文平均只有 104 字/条（0.3 KB）。真正占地方的是化石行本身（标题+片段+索引），约 0.6 KB/条。</p>
+
+<h2><span class="no">08</span>现在的体检数字</h2>
+<table>
+  <tbody>
+    <tr><td>记忆条数</td><td class="num">2,143 条</td><td>第一层 553 条 / 第二层 1,590 条 / 第三层 0 条</td></tr>
+    <tr><td>锚点</td><td class="num">473 个</td><td>人的 QQ、事、场景、话题</td></tr>
+    <tr><td>边</td><td class="num">12,292 条</td><td>热 1,785 / 温 9,269 / 冷 1,102 / co-occur 136</td></tr>
+    <tr><td>底片</td><td class="num">1,600 条 / 16.7 万字</td><td>原文全文</td></tr>
+    <tr><td>对话记录</td><td class="num">2,874 条</td><td>每次只取最近 50 条进提示词</td></tr>
+    <tr><td>库文件</td><td class="num">7.3 MB</td><td>VACUUM 之后</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="no">09</span>代价：它是有意变模糊的</h2>
+<ul>
+  <li><b>3.7 天以后</b>，她还能说清「有这件事」，但不能再复述原话</li>
+  <li><b>16 天以后</b>，只剩「那次挺难受的，好像跟钱有关」这种程度</li>
+  <li><b>要细节</b>，得靠底片地址去翻，或被关键词唤醒</li>
+</ul>
+<p>这不是 bug，是设计：<b>用逐渐变粗的记忆，换一个几乎不会爆的上限</b>。想让她「记得更细更久」，只有两条路——降进料速度（记忆更值钱）或加大预算（更贵）。</p>
+
+<h2><span class="no">10</span>可调旋钮</h2>
+<table>
+  <thead><tr><th>想调什么</th><th>改哪</th><th>现在</th></tr></thead>
+  <tbody>
+    <tr><td>记忆总共能装多少</td><td><code>data/bot.json → contextBudgetTokens</code></td><td class="num">1,000,000</td></tr>
+    <tr><td>第一层留多少</td><td><code>detailedQuota</code>（默认 0.3）</td><td class="num">30%</td></tr>
+    <tr><td>第三层封顶</td><td><code>src/compress.ts → FOSSIL_MAX_EVENTS</code></td><td class="num">1,000,000 条</td></tr>
+    <tr><td>每天记多少条</td><td><code>data/tuning.json → v3MinValue / v3MaxEvents</code></td><td class="num">2 / 12</td></tr>
+    <tr><td>边三档半衰期</td><td><code>decayEdges(db, now, {hotDays, warmDays, coldDays})</code></td><td class="num">15 / 3 / 2 天</td></tr>
+    <tr><td>边上限</td><td><code>capEdgesByTier({warmCap, coldCap})</code></td><td class="num">20,000 / 2,000</td></tr>
+    <tr><td>热转温削多少</td><td><code>thinNewlyWarmEdges(db, before, 0.25)</code></td><td class="num">25%</td></tr>
+  </tbody>
+</table>
+
+<p class="muted" style="margin-top:40px">数据来源：<code>data/memory.db</code> 实测（2026-10-27）。生成本页的脚本：<code>tools/collect-report-data.ts</code>、<code>tools/make-report-charts.py</code>。</p>
+
+</div>
+</body>
+</html>
