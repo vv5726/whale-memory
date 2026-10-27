@@ -4,6 +4,10 @@
 >
 > 解决的问题很简单：**上下文一满，AI 就像换了个人。**
 
+![架构图](docs/architecture-map.png)
+
+<sub>点开看大图。想追某条数据流，用可交互版 `docs/architecture-map.html`——鼠标停在任意卡片上，只有它的连线会亮。</sub>
+
 ---
 
 ## 它到底解决什么
