@@ -303,19 +303,19 @@
   <div class="rail auto"><div class="n">06</div><div class="nm">自己活着</div><div class="ds">没人找她<br>也有节奏</div></div>
   <div class="band">
     <div class="row">
-      <div class="card auto" data-id="auto-act">
-        <div class="hd"><b>自主活动</b><span class="p">autonomy.ts · 每 6 分钟</span></div>
-        <div class="ln"><i>·</i><span>先掷骰子（纯本地随机，<b>不花钱</b>）</span></div>
-        <div class="ln"><i>·</i><span>阅读员看 B 站，只交回简报，字幕不进主上下文</span></div>
-        <div class="ln"><i>·</i><span>主对话只读简报；50% 概率先去玩手机</span></div>
-        <div class="ln"><i>·</i><span>结果进手记 + 知识库</span></div>
+      <div class="card auto is-off" data-id="auto-act">
+        <div class="hd"><b>自主活动</b><span class="p">autonomy.ts</span><span class="cls">定时器已关</span></div>
+        <div class="ln"><i>·</i><span>原来每 6 分钟一轮：掷骰子 → 阅读员看 B 站 / 玩手机</span></div>
+        <div class="ln"><i>·</i><span>现在<b>由走神的「内容」途径接手</b>，代码留着没删</span></div>
+        <div class="ln"><i>·</i><span>改回 <span class="m">autonomyEnabled: true</span> 就复活</span></div>
       </div>
       <div class="card auto" data-id="auto-think">
-        <div class="hd"><b>走神</b><span class="p">autonomy.ts · 静默 30 秒</span></div>
-        <div class="ln"><i>·</i><span>85% 概率 · 间隔 1.5–3.5 分随机</span></div>
+        <div class="hd"><b>走神</b><span class="p">autonomy.ts · 静默 30 秒</span><span class="cls">唯一的自主循环</span></div>
+        <div class="ln"><i>·</i><span>85% 概率 · 间隔 1.5–3.5 分随机 · 干活后缓 90 秒</span></div>
         <div class="ln"><i>·</i><span>随机锚点 → 想起 → 问自己四问</span></div>
-        <div class="ln"><i>·</i><span>途径：<b>做 / 内容 / 聊天 / 算了</b></span></div>
-        <div class="ln"><i>·</i><span>只有「聊天」真写出话才发</span></div>
+        <div class="ln"><i>·</i><span>途径：<b>聊天</b>（真发）· <b>内容</b>（阅读员去看一轮）</span></div>
+        <div class="ln"><i>·</i><span>　　<b>做</b>（3 轮工具真动手）· <b>算了</b></span></div>
+        <div class="ln"><i>·</i><span>走神和它派生的动作都<b>碰不到手机</b></span></div>
       </div>
       <div class="card auto is-off" data-id="auto-speak">
         <div class="hd"><b>主动开口</b><span class="p">startSpeaking()</span><span class="cls">已停用</span></div>

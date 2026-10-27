@@ -180,22 +180,36 @@ fossil     不占预算，按条数 100 万（≈ 磁盘 0.9 GB，够三四年�
 
 ---
 
-## 6. 自己活着（走神 / 自主活动）
+## 6. 自己活着（走神 = 唯一的自主循环）
+
+**2026-10-27 起：自主活动的定时器关掉了**（`autonomyEnabled: false`），代码还在。
+去 B 站看、动手做事，现在都由走神的「内容 / 做」两条途径决定（见 §7 下面的四条途径表）。
 
 | 数字 | 在哪 | 默认 | 含义 |
 |---|---|---|---|
-| `autonomyMinutes` | `bot.json` | 20 | 每 N 分钟一轮自主活动 |
-| `autonomyHours` | `bot.json` | `[9,24]` | 活动时段，支持跨午夜 `[22,6]` |
-| `autonomyIdleMinutes` | `bot.json` | 8 | 刚有人说话就跳过，别打断 |
-| `autonomyDailyRounds` | `bot.json` | 24（**0 = 不限**） | 每天最多几轮 |
 | `thinkEnabled` | `bot.json` | true | 走神总开关 |
 | `thinkChance` | `bot.json` / tuning | 0.55 / 0.85 | 到点后掷中的概率 |
 | `thinkGapMin` / `thinkGapMax` | tuning | 1.5 / 3.5 分钟 | 两次走神的间隔（**随机**，避免像闹钟） |
 | `thinkIdleSeconds` | tuning | 30 秒 | 他说话后安静多久才允许走神 |
 | `thinkSettleSeconds` | tuning | 90 秒 | 刚干完活缓多久再走神 |
-| `phonePlayChance` | `bot.json` | 0.35 | 这一轮先去玩手机而不是刷 B 站 |
+| `autonomyHours` | `bot.json` | `[9,24]` | 走神的允许时段，支持跨午夜 `[22,6]` |
+| `autonomyEnabled` | `bot.json` | **现在 false** | 自主活动定时器。改回 true 就复活 |
+
+自主活动那套旋钮（`autonomyMinutes` / `autonomyIdleMinutes` / `autonomyDailyRounds` / `phonePlayChance`）
+现在**都不起作用了**——定时器关着，`gate()` 第一行就返回。其中 `autonomyIdleMinutes` 从写下来那天起就没接线。
 
 **掷骰子是纯本地随机，一个 token 都不花**——只有掷中了才走模型。这是省钱的核心设计。
+
+### 走神产生的动作（两条执行器，轮数写死在代码里）
+
+| 途径 | 谁执行 | 轮数上限 |
+|---|---|---|
+| 聊天 | `onSpeak` → `deliver()` | — |
+| 内容 | `readOnce()`：阅读员 6 轮 + 学习 4 轮 | 10 |
+| 做 | `actOnce()` | 3 |
+| 算了 | 什么都不做 | — |
+
+一次「内容」≈ 10 轮模型请求；一次「做」≈ 3 轮。**轮数就是钱**，改这两个数要动 `src/bot/autonomy.ts`。
 
 ---
 
@@ -207,7 +221,7 @@ fossil     不占预算，按条数 100 万（≈ 磁盘 0.9 GB，够三四年�
 | `extractTemperature` | tuning / config | 0.3 | 0–1 | 抽取记忆的温度。0 会写成模板 |
 | `groupSpeakThreshold` | tuning | 0.6 | 0–1 | ⚠️ **没接线**：只存不用。群里回不回只由 `groupReplyMode` + 白名单决定（见 §1） |
 | `replyRounds` | tuning | 8 | 1–60 | 回话最多调几轮工具。**每轮重发全量 → 轮数是平方级花钱** |
-| `actRounds` | tuning | 6 | 1–60 | 自主活动时最多几轮工具 |
+| `actRounds` | tuning | 6 | 1–60 | 走神 / 自主活动里最多几轮工具（**「做」那一步是另一处硬编码的 3 轮**） |
 | `HARD_ROUND_CAP` | `toolchat.ts` | 999 | 代码 | 不写死轮数时的硬顶，兜底死循环 |
 | 单次超时 | `bot/service.ts` | **90 秒** | 代码 | 一轮模型调用最多等多久 |
 | `v3MinValue` | tuning | 3 | 0–10 | 价值分低于这个数就不记。**调高＝记得更少更准** |
@@ -293,11 +307,11 @@ fossil     不占预算，按条数 100 万（≈ 磁盘 0.9 GB，够三四年�
 | `dailySleepWindow` | `[3,5]` | 整日整理时段 |
 | `dailySleepHour` | `null` | 另一种写法：每天某点 |
 | `announceSleep` | `true` | 强制整理时说一句 |
-| `autonomyEnabled` | `true` | 自主活动总开关 |
-| `autonomyMinutes` | 20 | 每 N 分钟一轮 |
-| `autonomyHours` | `[9,24]` | 活动时段（支持跨午夜） |
-| `autonomyIdleMinutes` | 8 | 刚有人说话就跳过 |
-| `autonomyDailyRounds` | 24 | 每天轮次（0 = 不限） |
+| `autonomyEnabled` | `true`（**本机现在 false**） | 自主活动定时器总开关 |
+| `autonomyMinutes` | 20 | 每 N 分钟一轮（定时器关着时不起作用） |
+| `autonomyHours` | `[9,24]` | 走神的允许时段（支持跨午夜） |
+| `autonomyIdleMinutes` | 8 | ⚠️ 从没接线，改了没效果 |
+| `autonomyDailyRounds` | 24 | 每天轮次（0 = 不限；定时器关着时不起作用） |
 | `thinkEnabled` | `true` | 走神总开关 |
 | `thinkChance` | 0.55 | 掷中概率 |
 | `thinkIdleSeconds` / `thinkSettleSeconds` | 30 / 90 | 安静多久 / 缓多久 |
@@ -356,7 +370,7 @@ fossil     不占预算，按条数 100 万（≈ 磁盘 0.9 GB，够三四年�
 1. `dailyBudgetYuan` 调到你真愿意花的上限
 2. 核对 `costInputPerMTok` / `costOutputPerMTok` 跟供应商一致（写错就是假账）
 3. `replyRounds` 8 → 5（工具环是平方级花钱）
-4. `thinkChance` 0.85 → 0.4；`autonomyMinutes` 6 → 20
+4. `thinkChance` 0.85 → 0.4（走神次数直接减半；自主活动定时器已经关着，不用管它）
 5. `v3MaxEvents` 8 → 5（少记一点，抽取便宜）
 
 **想记得更久**
@@ -376,8 +390,8 @@ fossil     不占预算，按条数 100 万（≈ 磁盘 0.9 GB，够三四年�
 3. 把群从 `allowGroups` 里去掉 = 群里彻底不吭声（只记群号，不建库）
 
 **想她更活泼**
-1. `thinkChance` ↑、`thinkGapMaxMinutes` ↓
-2. `autonomyMinutes` ↓、`autonomyHours` 拉长
+1. `thinkChance` ↑、`thinkGapMaxMinutes` ↓（走神是唯一的自主循环，动它就够了）
+2. `thinkSettleSeconds` 90 → 30：让她更容易开始走神（"刚忙完"是现在最大的拦截）
 3. `replyTemperature` 0.9 → 1.05（**别过 1.2**）
 
 ---
