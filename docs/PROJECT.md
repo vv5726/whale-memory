@@ -235,7 +235,7 @@ node tools/verify-phone-doc.ts        # 她能不能读到手机文档
 | GitHub 公开准备（拆出记忆、密钥、290 个一次性脚本、LICENSE、README） | 未开始 |
 | 日志每小时清空，不利于排查 | 未改 |
 | `src/bot/service.fixed.ts`、`service.recover.ts` 是残留副本 | 未删 |
-| `tools/` 里 332 个脚本，多数是一次性 patch/fix | 未清理 |
+| `tools/` 里 332 个脚本，多数是一次性 patch/fix | **已处理**：275 个挪进 `tools/legacy/`，根下只留 verify / check / compare / bot-smoke |
 
 ## 十二、文档索引
 
