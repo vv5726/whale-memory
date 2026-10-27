@@ -59,6 +59,11 @@ function replayAll(db: ReturnType<typeof freshDb>, cfg: MemoryConfig): void {
 function main(): void {
   const cfg = withOverrides(DEFAULT_CONFIG, { contextBudgetTokens: 900 });
 
+  // 召回类的检查（第 6、7 条）需要候选记忆**还在上下文里**。
+  // 900 的预算会把绝大部分压进化石层，而化石层不进召回——那正是第 3、5 条在测的事，
+  // 不该让召回检查跟着陪葬。所以这两条单独用一个大一点的预算。
+  const cfgRoomy = withOverrides(cfg, { contextBudgetTokens: 5000 });
+
   console.log("1. 睡眠是幂等的（重复跑不会把记忆压坏）");
   {
     const db = freshDb(TMP);
@@ -114,8 +119,13 @@ function main(): void {
   {
     const db = freshDb(TMP);
     replayAll(db, cfg);
-    const used = Number(db.prepare("SELECT COALESCE(SUM(size_tokens),0) AS t FROM events").get()?.t ?? 0);
-    check(`总占用 ${used} ≤ 预算 ${cfg.contextBudgetTokens}`, used <= cfg.contextBudgetTokens, "降级/合并没能把水位压下来");
+    const used = Number(
+      db.prepare("SELECT COALESCE(SUM(size_tokens),0) AS t FROM events WHERE archived = 0").get()?.t ?? 0,
+    );
+    // 化石层 archived=1：不进上下文、也不占 token 预算（2026-10-27 起按条数封顶）。
+    // 所以这里只能量 archived=0 的那部分，上限是 detailed + compressed 两档之和。
+    const cap = Math.round(cfg.contextBudgetTokens * (cfg.detailedQuota + cfg.compressedQuota));
+    check(`上下文占用 ${used} ≤ 上限 ${cap}（化石层不进上下文）`, used <= cap, "降级/合并没能把水位压下来");
     db.close();
   }
 
@@ -179,16 +189,19 @@ function main(): void {
   console.log("6. 概率抽样可复现（同一会话同一天不会自相矛盾）");
   {
     const db = freshDb(TMP);
-    replayAll(db, cfg);
+    replayAll(db, cfgRoomy);
     const nowTs = dayKeyToTs("2026-10-12");
-    const a = recall(db, cfg, "王建国那两千块钱还了吗", { nowTs, sessionId: "s1" });
-    const b = recall(db, cfg, "王建国那两千块钱还了吗", { nowTs, sessionId: "s1" });
-    const c = recall(db, cfg, "王建国那两千块钱还了吗", { nowTs, sessionId: "s2" });
+    const a = recall(db, cfgRoomy, "王建国那两千块钱还了吗", { nowTs, sessionId: "s1" });
+    const b = recall(db, cfgRoomy, "王建国那两千块钱还了吗", { nowTs, sessionId: "s1" });
+    const c = recall(db, cfgRoomy, "王建国那两千块钱还了吗", { nowTs, sessionId: "s2" });
     check("同一会话两次抽样结果一致", a.affective?.event.id === b.affective?.event.id);
     check(
       "事实通道完全确定",
       JSON.stringify(a.factual.map((f) => f.event.id)) === JSON.stringify(b.factual.map((f) => f.event.id)),
     );
+    // 先确认池子不是空的：池子空的时候 affective 一定是 null，
+    // 那种情况下报"抽样跳出了概率表"是误导（真正的原因是候选被压没了）。
+    check("候选池非空（有能被想起来的记忆）", c.probabilityTable.length > 0, "候选池是空的，能不能抽中无从谈起");
     const poolIds = new Set(c.probabilityTable.map((t) => t.eventId));
     check("换会话后抽到的仍在候选池内", Boolean(c.affective && poolIds.has(c.affective.event.id)), "抽样跳出了概率表");
     db.close();
@@ -197,21 +210,21 @@ function main(): void {
   console.log("7. 同一性合并：100% 关联的两个锚点并成一个节点");
   {
     const db = freshDb(TMP);
-    replayAll(db, cfg);
+    replayAll(db, cfgRoomy);
     const before = Number(db.prepare("SELECT COUNT(*) AS c FROM anchors").get()?.c ?? 0);
     const wjg = db.prepare("SELECT id FROM anchors WHERE name = '王建国'").get();
     check("找到王建国锚点", Boolean(wjg));
     if (wjg) {
       const boss = ensureAnchor(db, "王总", "person", Date.now());
       linkIdentity(db, String(wjg.id), boss, 1.0, Date.now());
-      const st = sleep(db, cfg, { nowTs: Date.now() });
+      const st = sleep(db, cfgRoomy, { nowTs: Date.now() });
       const after = Number(db.prepare("SELECT COUNT(*) AS c FROM anchors").get()?.c ?? 0);
       check(`锚点 ${before} → ${after}（合并 ${st.mergedAnchors} 个）`, after === before, "same-as 1.0 的锚点没有被合并");
       const alias = db.prepare("SELECT anchor_id FROM anchor_aliases WHERE alias = '王总'").get();
       const wjgNow = db.prepare("SELECT id FROM anchors WHERE name = '王建国'").get();
       check("「王总」变成了王建国的别名", Boolean(alias && wjgNow && String(alias.anchor_id) === String(wjgNow.id)));
-      const r = recall(db, cfg, "王总说的那些事", { nowTs: Date.now() });
-      check("用「王总」仍能连到王建国的记忆", r.factual.length > 0);
+      const r = recall(db, cfgRoomy, "王总说的那些事", { nowTs: Date.now() });
+      check("用「王总」仍能连到王建国的记忆", r.factual.length > 0, `种子 ${r.seeds.length}｜kept ${r.factual.length}`);
     }
     db.close();
   }

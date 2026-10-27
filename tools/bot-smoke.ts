@@ -168,14 +168,15 @@ async function main(): Promise<void> {
     sessionId: "private:10001",
     userId: 10001,
     userName: "小林",
-    text: "王建国那两千块钱还了吗",
+    text: "王建国说下周三之前把借我的两千块钱还上。",
     isGroup: false,
     selfId: 99999,
   });
   check("回了话", reply === "嗯，我知道。", `实际：${reply}`);
   check("提示词里带了【记忆】段", captured[0]?.includes("【记忆】") ?? false);
   check("提示词里带了对方称呼", captured[0]?.includes("小林") ?? false);
-  check("原始对话已落盘", pendingTurns(service["db"]) === 1, `待整理 ${pendingTurns(service["db"])} 条`);
+  // 一问一答都落盘：user 的那句 + 她自己回的那句（service.handle 的第 5 步）
+  check("原始对话已落盘", pendingTurns(service["db"]) === 2, `待整理 ${pendingTurns(service["db"])} 条`);
 
   console.log("");
   console.log("2. 陌生人不回 / 自己发的不回");
