@@ -1,4 +1,4 @@
-﻿import { openDb } from "../src/db.ts";
+import { openDb } from "../src/db.ts";
 
 const db = openDb("data/memory.db");
 const anchor = db.prepare("SELECT id FROM anchors WHERE name = ?").get("小雨") as { id: string } | undefined;

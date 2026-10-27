@@ -1,4 +1,4 @@
-﻿import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "node:sqlite";
 import { recallContext } from "./.dsh-test-recall.mjs";
 import { homedir } from "node:os";
 import { join } from "node:path";

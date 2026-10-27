@@ -1,4 +1,4 @@
-﻿import { DEFAULT_CONFIG, withOverrides } from "../src/config.ts";
+import { DEFAULT_CONFIG, withOverrides } from "../src/config.ts";
 import { runFullEval } from "../src/eval.ts";
 import { describeEvent, recall } from "../src/recall.ts";
 

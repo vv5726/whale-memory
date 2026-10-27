@@ -1,4 +1,4 @@
-﻿import { openDb } from "../src/db.ts";
+import { openDb } from "../src/db.ts";
 import { describeEvent } from "../src/recall.ts";
 
 const db = openDb("data/memory.db");

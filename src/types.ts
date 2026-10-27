@@ -1,4 +1,4 @@
-﻿/** 三层记忆。名字按人类直觉取，tier 只降不升。 */
+/** 三层记忆。名字按人类直觉取，tier 只降不升。 */
 export type Tier = "detailed" | "compressed" | "fossil";
 
 /** 事件处理阶段，睡眠任务用它做断点续跑。 */

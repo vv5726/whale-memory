@@ -1,4 +1,4 @@
-﻿import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 const p = "src/llm/extract.ts";
 let s = readFileSync(p, "utf8");
 const dead = '  const sigBase = `${turns.length}:${total}:${head}:${tail}`;\n  return `${EXTRACT_VERSION}:${sigBase}`;\n  return `${turns.length}:${total}:${head}~${tail}`;';

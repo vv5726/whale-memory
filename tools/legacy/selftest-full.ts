@@ -1,4 +1,4 @@
-﻿/** 重启前的完整自测：每个改动都真跑一次 */
+/** 重启前的完整自测：每个改动都真跑一次 */
 import { loadBotConfig } from "../src/bot/config.ts";
 
 const cfg = loadBotConfig();

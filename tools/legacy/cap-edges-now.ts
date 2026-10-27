@@ -1,4 +1,4 @@
-﻿// 瀵规寮忓簱鎵ц涓€娆¤竟涓婇檺锛堝厛澶囦唤锛夛細娓╁眰鍒犲埌 25%锛屽喎灞傝秴 2,000 鎵嶅姩锛岀儹灞備笉纰?import { copyFileSync, existsSync, statSync } from "node:fs";
+// 瀵规寮忓簱鎵ц涓€娆¤竟涓婇檺锛堝厛澶囦唤锛夛細娓╁眰鍒犲埌 25%锛屽喎灞傝秴 2,000 鎵嶅姩锛岀儹灞備笉纰?import { copyFileSync, existsSync, statSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { capEdgesByTier } from "../src/anchors.ts";
 

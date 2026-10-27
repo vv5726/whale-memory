@@ -1,4 +1,4 @@
-﻿/** 验证：凌晨窗口能触发整理，而且真的把待整理的对话抽成记忆 */
+/** 验证：凌晨窗口能触发整理，而且真的把待整理的对话抽成记忆 */
 import { loadBotConfig } from "../src/bot/config.ts";
 import { BotService } from "../src/bot/service.ts";
 import { openDb } from "../src/db.ts";

@@ -1,4 +1,4 @@
-﻿import { buildMessages, extractDayWithLlm } from "../src/llm/extract.ts";
+import { buildMessages, extractDayWithLlm } from "../src/llm/extract.ts";
 import { loadBotConfig } from "../src/bot/config.ts";
 import { OpenAiCompatibleAdapter } from "../src/llm/adapter.ts";
 import { openDb } from "../src/db.ts";

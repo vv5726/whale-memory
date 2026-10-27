@@ -1,4 +1,4 @@
-﻿import type { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 import type { ToolDefinition, ToolRegistry } from "./registry.ts";
 
 /**

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * dsh-whale-memory —— 会忘事的记忆。
  *
  * 只用 .mjs，不 import 任何 .ts（宿主 Node 不一定支持类型剥离）。

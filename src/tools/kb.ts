@@ -1,4 +1,4 @@
-﻿import type { ToolDefinition, ToolRegistry } from "./registry.ts";
+import type { ToolDefinition, ToolRegistry } from "./registry.ts";
 
 /** 知识库相关的工具：收进来、搜出来、看分类 */
 export interface KbHooks {

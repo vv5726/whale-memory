@@ -1,4 +1,4 @@
-﻿/** 跟凝聊两句：告诉它假的锚点已经删了，看它怎么想 */
+/** 跟凝聊两句：告诉它假的锚点已经删了，看它怎么想 */
 import { loadBotConfig } from "../src/bot/config.ts";
 import { BotService } from "../src/bot/service.ts";
 

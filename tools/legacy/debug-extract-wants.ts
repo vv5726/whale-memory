@@ -1,4 +1,4 @@
-﻿/** 直接看抽取模型对「要求类对话」的原始输出 */
+/** 直接看抽取模型对「要求类对话」的原始输出 */
 import { buildMessages, parseAndValidate } from "../src/llm/extract.ts";
 import { loadBotConfig } from "../src/bot/config.ts";
 import { OllamaAdapter, OpenAiCompatibleAdapter } from "../src/llm/adapter.ts";

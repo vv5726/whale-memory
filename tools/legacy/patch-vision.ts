@@ -1,4 +1,4 @@
-﻿import { appendFileSync } from "node:fs";
+import { appendFileSync } from "node:fs";
 
 const helper = `
 export async function describeImagesInText(text: string, dataDir: string): Promise<string> {
