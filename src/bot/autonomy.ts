@@ -23,6 +23,15 @@ import { join } from "node:path";
  * 「看到主题不等于喜欢」——所以它看没看完、停没停下来想，
  * 都记在行为里，而不是靠「翻到过」判断兴趣。
  */
+/**
+ * 走神和它派生出来的动作都不碰手机。
+ *
+ * 「忽然想起一件事」不是「拿起手机玩」。手机截图/读屏一次几千字，
+ * 进了工具循环还每轮重发；而且动过手机之后，想法往往就被屏幕带跑了。
+ * （手机工具仍然挂在聊天和「途径=内容/做」之外的地方——聊天里她照样能用。）
+ */
+const noPhoneTools = (name: string): boolean => !name.startsWith("phone_");
+
 export class AutonomyLoop {
   private cfg: BotConfig;
   private service: BotService;
@@ -504,6 +513,35 @@ export class AutonomyLoop {
         return { thought: true, reason: `想起「${anchor.name}」，决定找他说话`, text: words };
       }
 
+      // 途径 = 内容：派阅读员去 B 站看一轮。
+      // 这条路以前挂在「自主活动」上（每 6 分钟一轮，不管她想不想看）；
+      // 现在挂到走神上——她想起一件事、判断「该去看看」，才真的去看。
+      if (intent.channel === "content") {
+        const said = await this.readOnce();
+        appendJournal(
+          cfg.dataDir,
+          dayKey(started),
+          `（${new Date(started).toTimeString().slice(0, 5)} 想起${anchor.name} → 内容）${said}`,
+        );
+        return { thought: true, reason: `想起「${anchor.name}」，去看了一轮`, text: said };
+      }
+
+      // 途径 = 做：真的动手。
+      // 以前这里只写一行手记，intent.action 从来没人用——「决定去做」等于没做。
+      // 现在给它一个执行器：限 3 轮工具，且和走神一样不许碰手机。
+      if (intent.channel === "act") {
+        const todo = String(intent.action ?? intent.goal ?? "").trim();
+        if (todo.length > 0) {
+          const did = await this.actOnce(todo);
+          appendJournal(
+            cfg.dataDir,
+            dayKey(started),
+            `（${new Date(started).toTimeString().slice(0, 5)} 想起${anchor.name} → 做）${did}`,
+          );
+          return { thought: true, reason: `想起「${anchor.name}」，动手做了：${todo.slice(0, 20)}`, text: did };
+        }
+      }
+
       if (intent.channel === "none" || text.length === 0) {
         return { thought: false, reason: `想起「${anchor.name}」，但没什么要做的` };
       }
@@ -519,6 +557,36 @@ export class AutonomyLoop {
     } finally {
       this.busy = false;
     }
+  }
+
+  /**
+   * 途径=内容：派阅读员看一轮 B 站，再把简报读成自己的东西。
+   *
+   * 这就是原来 runOnce() 里那条「阅读员」分支——没删，只是换了触发者：
+   * 从「每 6 分钟定时跑一轮」改成「走神判断该看才跑」。
+   * 阅读员仍然只拿 5 个读的工具、仍然只交回几百字简报（字幕原文不进这里）。
+   */
+  private async readOnce(): Promise<string> {
+    if (!this.reader) return "";
+    const report = await this.reader.read(this.buildReadTask());
+    if (report.summary.length === 0) return "";
+    let learned = 0;
+    for (const item of parseReadItems(report.summary)) {
+      this.service.recordNote(`读到的：${item}`);
+      if (this.service.rememberLearned(item)) learned += 1;
+    }
+    // 4 轮够它写手记 + 补知识库；再多就是白烧钱
+    return this.service.act(this.buildLearnPrompt(report.summary, learned), 4, { toolFilter: noPhoneTools });
+  }
+
+  /** 途径=做：给她一件事，让她真的去做（3 轮工具，不许碰手机）。 */
+  private async actOnce(todo: string): Promise<string> {
+    const instruction = [
+      `刚才你想到一件事，决定动手做：${todo}`,
+      "",
+      "现在去做。能用工具就动手，做完用一两句说结果；不要只表态，也别复述这段话。",
+    ].join("\n");
+    return this.service.act(instruction, 3, { toolFilter: noPhoneTools });
   }
 
   /** 走神的定时器：间隔随机，避免像节拍器 */
