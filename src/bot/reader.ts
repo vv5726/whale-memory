@@ -74,6 +74,8 @@ export class ReaderAgent {
       ],
       this.tools,
       6,
+      undefined,
+      "reader",
     );
 
     const summary = result.text.trim();

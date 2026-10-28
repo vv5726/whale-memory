@@ -195,7 +195,7 @@ export class BatchRunner {
 
     let said = "";
     try {
-      said = await this.service.act(this.buildInstruction(items), 8, { toolFilter: batchTools });
+      said = await this.service.act(this.buildInstruction(items), 8, { toolFilter: batchTools, tag: "batch" });
     } catch (err) {
       // 整批挂了：全部退回 pending，下次再来
       for (const i of items) markItem(this.cfg.dataDir, i.id, "pending");

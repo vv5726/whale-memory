@@ -54,7 +54,12 @@ export function registerPersonaTools(registry: ToolRegistry, dataDir?: string): 
         if (text.length < 100) return { ok: false, text: "太短了（至少 100 字）。人格底色写得太薄，等于没有。" };
         if (text.length > 6000) return { ok: false, text: "太长了（6000 字以内）。写长了自己都不一定读得进去。" };
         savePersonaText(text, dataDir);
-        return { ok: true, text: `写好了，${text.length} 字。下一次开口就会按这份来（底线那几条仍然固定）。` };
+        const hint =
+          text.length > 2500
+            ? `\n\n⚠️ 现在 ${text.length} 字。人格太长会稀释：靠前的会被靠后的挤掉，写到某个长度就等于没写，容易丢失自我。` +
+              "注意结构和总字数——长期不变的规矩挪到说话规矩里，已经不成立的就删掉。"
+            : "";
+        return { ok: true, text: `写好了，${text.length} 字。下一次开口就会按这份来（底线那几条仍然固定）。${hint}` };
       }
 
       if (action === "reset") {

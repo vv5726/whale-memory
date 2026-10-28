@@ -165,6 +165,7 @@ export class Reading {
     // 主对话只拿到简报，看不见字幕原文
     const said = await this.service.act(this.buildLearnPrompt(summary, learned), 4, {
       toolFilter: noPhoneTools,
+      tag: "learn",
     });
 
     return {

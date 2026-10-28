@@ -473,6 +473,7 @@ export class BotService {
     return this.act(lines.join("\n"), undefined, {
       plans: true,
       toolFilter: opts?.toolFilter ?? noPhoneTools,
+      tag: "think",
     });
   }    refreshPhoneTools(): void {
     if (!this.tools) return;
@@ -756,7 +757,7 @@ export class BotService {
     return this.db;
   }
 
-  async act(instruction: string, maxRounds?: number, opts: { plans?: boolean; toolFilter?: (name: string) => boolean } = {}): Promise<string> {
+  async act(instruction: string, maxRounds?: number, opts: { plans?: boolean; toolFilter?: (name: string) => boolean; tag?: string } = {}): Promise<string> {
     this.lastActivityAt = Date.now();
     touchActivity(this.lastActivityAt);
     const budget = this.autonomyBudget();
@@ -766,7 +767,7 @@ export class BotService {
       memory,      userName: "对方",      history: [],      message: instruction,      memoryWeak: false,      ...this.promptExtras(undefined, opts),    });
     // 轮次：调用方没指定就用她自己那份 actRounds（回话用 replyRounds）
     const rounds = maxRounds ?? loadTuning(this.cfg.dataDir).actRounds;
-    const out = await this.respond(messages, rounds, opts.toolFilter);
+    const out = await this.respond(messages, rounds, opts.toolFilter, opts.tag ?? "act");
     // 额度撞墙时那句不是她的话：当「这次没话说」，别让它变成手记/记忆
     return blockedByBudget(out.text) ? "" : out.text;
   }    /**
@@ -900,7 +901,7 @@ export class BotService {
       mind: (evt as { mind?: { surface: string; emotion: string; myReaction: string } | null } | undefined)?.mind ?? null,    };
   }    private async respond(    messages: Array<{
  role: "system" | "user" | "assistant";
- content: string }>,    maxRounds = 0,    toolFilter?: (name: string) => boolean,  ): Promise<{
+ content: string }>,    maxRounds = 0,    toolFilter?: (name: string) => boolean,    tag = "reply",  ): Promise<{
  text: string;
  toolText: string }> {
 
@@ -910,7 +911,7 @@ export class BotService {
  text: `今天的额度用完了（${cost.budgetYuan} 块，已花 ${cost.yuan} 块）。明天再说。`, toolText: "" };
     }    if (this.tools && this.cfg.provider === "deepseek") {
       const result = await runChatWithTools(        {
-          baseUrl: this.cfg.deepseekBaseUrl,          apiKey: this.cfg.deepseekApiKey,          model: this.cfg.deepseekModel,          temperature: loadTuning(this.cfg.dataDir).replyTemperature,          timeoutMs: 90_000,        },        messages,        this.tools,        maxRounds,        toolFilter,      );
+          baseUrl: this.cfg.deepseekBaseUrl,          apiKey: this.cfg.deepseekApiKey,          model: this.cfg.deepseekModel,          temperature: loadTuning(this.cfg.dataDir).replyTemperature,          timeoutMs: 90_000,        },        messages,        this.tools,        maxRounds,        toolFilter,        tag,      );
       if (result.calls.length > 0) {
         this.counters.toolCalls += result.calls.length;
       }

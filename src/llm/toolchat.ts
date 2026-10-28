@@ -1,3 +1,5 @@
+import { appendFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { recordUsage } from "../cost.ts";
 import { injectPendingImages } from "../bot/pending-images.ts";
 import { coerceArgs, type ToolRegistry } from "../tools/registry.ts";
@@ -36,6 +38,26 @@ export interface ToolChatResult {
  */
 const HARD_ROUND_CAP = 999;
 
+/**
+ * 每调一次模型就往 data/logs/llm-usage.log 追加一行。
+ *
+ * 为什么记：daily_cost 只有一个总数，算不出「钱花在走神还是对话上」。
+ * 有了 tag 才能回答「预算按用途怎么分」这种问题——这一行数据比重构便宜得多。
+ */
+function logUsage(tag: string, inTok: number, outTok: number, hit: number, rounds: number): void {
+  if (process.env.DSH_USAGE_LOG === "0") return;
+  try {
+    const dir = join(String(process.env.DSH_DATA_DIR ?? "data"), "logs");
+    mkdirSync(dir, { recursive: true });
+    const d = new Date();
+    const p = (n: number): string => String(n).padStart(2, "0");
+    const at = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+    appendFileSync(join(dir, "llm-usage.log"), `${at}|${tag}|in=${inTok}|out=${outTok}|hit=${hit}|rounds=${rounds}\n`, "utf8");
+  } catch {
+    // 记账失败不能影响回话
+  }
+}
+
 export async function runChatWithTools(
   cfg: ToolChatConfig,
   messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
@@ -48,6 +70,11 @@ export async function runChatWithTools(
    * 不是「拿起手机玩」的场景。手机截图/读屏一次就是几千字，进了循环还会每轮重发。
    */
   toolFilter?: (name: string) => boolean,
+  /**
+   * 这次调用是干什么用的：reply / think / batch / learn / heavy / reader。
+   * 只用来记账——不传就当 act。有了它才能算出「钱花在哪个用途上」。
+   */
+  tag = "act",
 ): Promise<ToolChatResult> {
   // 这一轮如果挂着原图（她刚收到图），注入到最后一条 user 消息里；注入一次就清空
   const withImages = injectPendingImages(
@@ -118,6 +145,7 @@ export async function runChatWithTools(
 
     if (toolCalls.length === 0) {
       recordUsage(promptTokens, completionTokens, cacheHit, cacheMiss);
+      logUsage(tag, promptTokens, completionTokens, cacheHit, calls.length);
       return { text: (message?.content ?? "").trim(), calls };
     }
 
