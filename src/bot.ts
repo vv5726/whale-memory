@@ -327,8 +327,12 @@ async function main(): Promise<void> {
   const stopSpeaking = cfg.proactiveEnabled ? loop.startSpeaking(1, 20) : () => undefined;
   const stopThinking = cfg.thinkEnabled ? loop.startThinking(1.5, 3.5) : () => undefined;
 
-  // 批处理：走神只记账，攒够了由这里一次性做掉（攒 10 条 / 深任务 3 条 / 最老的等 30 分钟）
-  const batch = new BatchRunner(cfg, autonomyService);
+  // 批处理：走神只记账，攒够了由这里一次性做掉（攒 10 条 / 深任务 3 条 / 最老的等 90 分钟）
+  // heavy（读 B 站）单独走阅读员，每 10 分钟最多一条、一天最多 6 条
+  const batch = new BatchRunner(cfg, autonomyService, {
+    reading: loop.reading,
+    isBusy: () => loop.isBusy(),
+  });
   const stopBatch = batch.start(1);
   console.log("[batch] 队列批处理已启动（每分钟看一眼，攒够才跑）");
 

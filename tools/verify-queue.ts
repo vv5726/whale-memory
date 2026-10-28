@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { loadBotConfig } from "../src/bot/config.ts";
 import { BotService } from "../src/bot/service.ts";
 import { BatchRunner } from "../src/bot/batch.ts";
+import { Reading } from "../src/bot/reading.ts";
 import { addItem, loadQueue, markItem, expireOld, queueStats, saveQueue, stampLocal } from "../src/queue.ts";
 
 const TMP = "data/tmp-verify-queue";
@@ -68,9 +69,9 @@ const g1 = batch.shouldRun();
 check("才 2 条、没等够 → 不跑", g1.ok === false, g1.reason);
 
 saveQueue(TMP, []);
-for (let i = 0; i < 10; i += 1) addItem(TMP, { what: `批量任务 ${i}`, kind: "light" });
+for (let i = 0; i < 8; i += 1) addItem(TMP, { what: `批量任务 ${i}`, kind: "light" });
 const g2 = batch.shouldRun();
-check("攒够 10 条 → 跑", g2.ok === true, g2.reason);
+check("攒够 8 条 → 跑", g2.ok === true, g2.reason);
 
 saveQueue(TMP, []);
 for (let i = 0; i < 3; i += 1) addItem(TMP, { what: `深任务 ${i}`, kind: "deep" });
@@ -80,10 +81,10 @@ check("深任务攒够 3 条 → 跑", g3.ok === true, g3.reason);
 saveQueue(TMP, []);
 addItem(TMP, { what: "只等了一会儿", kind: "light" });
 const old = loadQueue(TMP);
-old[0]!.at = stampLocal(new Date(Date.now() - 31 * 60_000));
+old[0]!.at = stampLocal(new Date(Date.now() - 91 * 60_000));
 saveQueue(TMP, old);
 const g4 = batch.shouldRun();
-check("最老的等了 31 分钟 → 跑", g4.ok === true, g4.reason);
+check("最老的等了 91 分钟 → 跑", g4.ok === true, g4.reason);
 
 // ── D 真跑一轮 ──
 console.log("\n=== D 端到端：批处理真跑一轮 ===");
@@ -92,7 +93,7 @@ const i1 = addItem(TMP, { what: "查一下两千块还了没", why: "想起王�
 const i2 = addItem(TMP, { what: "把说话规矩里重复的两条合并", why: "规矩太长", kind: "deep" }).item!;
 { // 让它满足「攒够」条件
   const q = loadQueue(TMP);
-  q[0]!.at = stampLocal(new Date(Date.now() - 31 * 60_000));
+  q[0]!.at = stampLocal(new Date(Date.now() - 91 * 60_000));
   saveQueue(TMP, q);
 }
 
@@ -144,8 +145,8 @@ const r = await batch.runOnce();
 check("批处理跑了", r.ran === true, r.reason);
 const after = loadQueue(TMP);
 check("销掉的那条算成", after.find((i) => i.id === i1.id)?.status === "done", after.find((i) => i.id === i1.id)?.status ?? "");
-check("没销掉的标失败、留着下次重试", after.find((i) => i.id === i2.id)?.status === "failed", after.find((i) => i.id === i2.id)?.status ?? "");
-check("失败次数 +1", (after.find((i) => i.id === i2.id)?.tries ?? 0) === 1);
+check("没轮到的退回 pending（不是判死）", after.find((i) => i.id === i2.id)?.status === "pending", after.find((i) => i.id === i2.id)?.status ?? "");
+check("没轮到的 tries 不涨", (after.find((i) => i.id === i2.id)?.tries ?? 0) === 0);
 check("批处理指令里带了这两件事", seen[0]!.user.includes(i1.id) && seen[0]!.user.includes(i2.id));
 
 // ── E 工具过滤 ──
@@ -168,6 +169,57 @@ try {
 }
 check("手记里有「批处理」", journal.includes("批处理"));
 check("手记里写了成/没成", /成 \d+ \/ 没成 \d+/.test(journal), journal.slice(0, 80));
+
+// ── F heavy：走阅读员，不进批处理 ──
+console.log("\n=== F heavy 走阅读员 ===");
+saveQueue(TMP, []);
+const hv = addItem(TMP, { what: "读一下讲 harness 的那个视频", why: "想知道 agent 和 harness 的边界", kind: "heavy" }).item!;
+
+const g5 = new BatchRunner(cfg, svc).shouldRun();
+check("只有 heavy 时，批处理不跑", g5.ok === false && /heavy/.test(g5.reason), g5.reason);
+check("没有阅读员时 heavy 也不跑", batch.shouldRunHeavy().ok === false, batch.shouldRunHeavy().reason);
+
+// 造一个带假阅读员的 Reading
+const fakeReader = {
+  read: async (task: string) => ({
+    at: Date.now(),
+    task,
+    summary: "【读了】BV1harness 讲 agent/harness 的分层 —— 结论：工具和记忆属于 harness",
+    toolsUsed: ["bili_search", "bili_subtitle"],
+    videosRead: 1,
+  }),
+};
+const heavyBatch = new BatchRunner(cfg, svc, { reading: new Reading(cfg, svc, fakeReader as never) });
+const g6 = heavyBatch.shouldRunHeavy();
+check("有阅读员 + 有 heavy → 该跑", g6.ok === true, g6.reason);
+
+// 上一段批处理刚调过模型，busyRecently(30s) 还是 true；等它过去（这是真实约束，不是测试技巧）
+await new Promise((r) => setTimeout(r, 31_000));
+
+let learnSeen = "";
+const prevFetch = globalThis.fetch;
+globalThis.fetch = (async (_url: unknown, init?: { body?: unknown }) => {
+  const body = JSON.parse(String(init?.body ?? "{}")) as { messages?: Array<{ role?: string; content?: string }> };
+  learnSeen = String(body.messages?.[0]?.content ?? "");
+  return new Response(
+    JSON.stringify({
+      choices: [{ message: { content: "读了：harness 管工具和记忆，模型只管说话。" }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 10, completion_tokens: 2 },
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+}) as unknown as typeof fetch;
+
+const rh = await heavyBatch.runHeavyOnce();
+globalThis.fetch = prevFetch;
+check("heavy 跑起来了", rh.ran === true, rh.reason);
+const hvAfter = loadQueue(TMP).find((i) => i.id === hv.id);
+check("heavy 标成做完", hvAfter?.status === "done", hvAfter?.status ?? "");
+check("结果写回队列", (hvAfter?.result ?? "").length > 5, hvAfter?.result ?? "");
+check("学习轮真的跑了（拿到简报）", learnSeen.includes("agent/harness"));
+
+const g7 = heavyBatch.shouldRunHeavy();
+check("紧接着再问 → 隔 10 分钟，不跑", g7.ok === false && /10 分钟/.test(g7.reason), g7.reason);
 
 svc.close();
 for (const p of [DB, `${DB}-wal`, `${DB}-shm`]) if (existsSync(p)) rmSync(p);

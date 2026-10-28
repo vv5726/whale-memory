@@ -65,6 +65,11 @@ export class AutonomyLoop {
     this.lastUserMessageAt = Date.now();
   }
 
+  /** 正在走神/干活吗？批处理用它避开同时调模型 */
+  isBusy(): boolean {
+    return this.busy;
+  }
+
   /**
    * 该不该现在动，掷一次骰子（抄自 dsh-speak-up）。
    *
