@@ -356,14 +356,17 @@ export class BotService {
  memories: string[] }>;
       stale: boolean;
     };
-  }    async think(anchor: {
-    name: string;
-    kind: string;
-    memories: string[];
-    related?: Array<{ name: string; weight: number; memories: string[] }>;
-    stale?: boolean;
-    repeats?: number;
-  }): Promise<string> {
+  }    async think(
+      anchor: {
+        name: string;
+        kind: string;
+        memories: string[];
+        related?: Array<{ name: string; weight: number; memories: string[] }>;
+        stale?: boolean;
+        repeats?: number;
+      },
+      opts?: { toolFilter?: (name: string) => boolean },
+    ): Promise<string> {
     const lines = [
       `我忽然想到「${anchor.name}」（${anchor.kind}）。`,
       anchor.memories.length > 0 ? "关于它，我记得：" : "关于它，其实什么都想不起来了。",
@@ -467,7 +470,10 @@ export class BotService {
 
     // 剩下的（怎么解读这段对话 / 八问 / 三途径 / 消息模板 / 输出格式）在 data/think-prompt.md，她自己能改
     lines.push(thinkPromptBlock(this.cfg.dataDir));
-    return this.act(lines.join("\n"), undefined, { plans: true, toolFilter: noPhoneTools });
+    return this.act(lines.join("\n"), undefined, {
+      plans: true,
+      toolFilter: opts?.toolFilter ?? noPhoneTools,
+    });
   }    refreshPhoneTools(): void {
     if (!this.tools) return;
     try {

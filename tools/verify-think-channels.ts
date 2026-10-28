@@ -88,15 +88,32 @@ check("内容：真的调了阅读员", readerCalled);
 const readingDir = join(TMP, "reading");
 check("内容：简报落盘了", existsSync(readingDir), readingDir);
 
-// ② 途径 = 做：应该真的跑一次动手循环，且不给手机
+// ② 途径 = 做：**只记进待办，不立刻动手**（2026-10-28 改的）
 intent = "做";
 seen.length = 0;
 const r2 = await loop.thinkOnce();
-check("做：走神返回「动手做了」", /动手做了/.test(r2.reason), r2.reason);
-const actCall = seen.find((s) => s.kind === "act");
-check("做：真的跑了动手那一轮", Boolean(actCall));
-const phoneInAct = (actCall?.tools ?? []).filter((n) => n.startsWith("phone_"));
-check("做：动手时看不到手机工具", phoneInAct.length === 0, phoneInAct.slice(0, 3).join("、"));
+check("做：走神返回「记进待办」", /记进待办|记下了/.test(r2.reason + r2.text), r2.reason);
+
+const queueFile = join(TMP, "todo-queue.json");
+let queue: Array<{ kind: string; what: string; why: string; status: string }> = [];
+try {
+  queue = JSON.parse(readFileSync(queueFile, "utf8"));
+} catch {
+  queue = [];
+}
+check("做：队列里多了一条", queue.length === 1, `${queue.length} 条`);
+check("做：记的是同一件事", Boolean(queue[0]?.what.includes("想确认这条路通不通")), queue[0]?.what ?? "");
+check("做：默认算 light", queue[0]?.kind === "light", queue[0]?.kind ?? "");
+check("做：没有当场再跑一轮动手", !seen.some((s) => s.kind === "act"));
+
+// 走神只能看到三个工具（这是省钱的关键）
+const thinkCall = seen.find((s) => s.kind === "think");
+const thinkToolNames = thinkCall?.tools ?? [];
+check(
+  "走神只拿到 3 个工具",
+  thinkToolNames.length === 3 && thinkToolNames.includes("queue_add"),
+  thinkToolNames.join("、"),
+);
 
 // ③ 手记里两条都要留下痕迹
 const jf = join(TMP, "journal");

@@ -53,7 +53,7 @@ try {
   check("videoLeft 不再是 0（不会误报没额度）", budget.videoLeft > 1000, String(budget.videoLeft));
 
   console.log("\n=== B 阅读员带着「我的处境」 ===");
-  const readTask = priv.buildReadTask!();
+  const readTask = loop.reading.buildTask({ why: "验证用：想看看今天有什么" });
   console.log(readTask.split("\n").slice(0, 6).map((l) => `  ${l}`).join("\n"));
   check("任务里带了我正在做的事/我是谁", readTask.includes("我是谁") || readTask.includes("我正在做的事"));
   check("任务里说了不限次数（不再说 0 个）", readTask.includes("不限次数"), readTask.includes("0 个") ? "还有 0 个" : "");
@@ -79,7 +79,7 @@ try {
   check("阅读员真的收到了处境", readerUser.includes("我是谁") || readerUser.includes("我正在做的事"));
 
   console.log("\n=== C 四个问题 + D 落库 ===");
-  const learnPrompt = (loop as unknown as { buildLearnPrompt: (s: string, n: number) => string }).buildLearnPrompt("【读了】BV1abc123456 标题 —— 要点", 1);
+  const learnPrompt = loop.reading.buildLearnPrompt("【读了】BV1abc123456 标题 —— 要点", 1);
   const asks = ["这跟我的目的有什么关系", "我能学到什么", "这对我是好的吗", "我要怎么做"];
   for (const q of asks) check(`四问里有「${q}」`, learnPrompt.includes(q));
   check("要求用 kb_add 记进知识库", learnPrompt.includes("kb_add"));

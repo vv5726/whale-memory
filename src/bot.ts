@@ -18,6 +18,7 @@ import { BotRouter } from "./bot/router.ts";
 import { setupFileLogging, startLogServer, startLogTruncation } from "./bot/logview.ts";
 import { ensureSelfSeed } from "./self.ts";
 import { AutonomyLoop } from "./bot/autonomy.ts";
+import { BatchRunner } from "./bot/batch.ts";
 import { describeUptime, markBoot, markDown, markReconnect } from "./uptime.ts";
 import { parseApprovalReply } from "./approvals.ts";
 import { saveFromMessage } from "./stickers.ts";
@@ -326,6 +327,11 @@ async function main(): Promise<void> {
   const stopSpeaking = cfg.proactiveEnabled ? loop.startSpeaking(1, 20) : () => undefined;
   const stopThinking = cfg.thinkEnabled ? loop.startThinking(1.5, 3.5) : () => undefined;
 
+  // 批处理：走神只记账，攒够了由这里一次性做掉（攒 10 条 / 深任务 3 条 / 最老的等 30 分钟）
+  const batch = new BatchRunner(cfg, autonomyService);
+  const stopBatch = batch.start(1);
+  console.log("[batch] 队列批处理已启动（每分钟看一眼，攒够才跑）");
+
   // 计划表：到点就主动送一次（走神被挡住时也不会漏）
   const stopPlans = setInterval(() => {
     void autonomyService.deliverDuePlans().catch(() => {});
@@ -408,6 +414,7 @@ async function main(): Promise<void> {
     stopAutonomy();
     stopSpeaking();
     stopThinking();
+    stopBatch();
   clearInterval(stopPlans);
     stopRosters();
     stopLogTruncation();

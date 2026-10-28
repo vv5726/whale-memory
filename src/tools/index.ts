@@ -37,6 +37,7 @@ import { registerVerifyTools } from "./verify.ts";
 import { registerMergeTool, mergeMemories } from "../merge-dedup.ts";
 import { registerGroupPolicyTools } from "./group-policy.ts";
 import { registerSelfStatusTools } from "./self-status.ts";
+import { registerQueueTools } from "./queue.ts";
 import { dayKey } from "../util.ts";
 import type { DatabaseSync } from "node:sqlite";
 import type { BotConfig } from "../bot/config.ts";
@@ -146,6 +147,7 @@ export function buildTools(
   if (memoryHooks) registerSettleTool(registry, { settle: memoryHooks.settle });
   if (memoryHooks) registerKbTools(registry, { add: memoryHooks.kbAdd, search: memoryHooks.kbSearch, list: memoryHooks.kbList, link: memoryHooks.kbLink });
   registerJournalTools(registry, cfg.dataDir, () => dayKey(Date.now()), db);
+  registerQueueTools(registry, { dataDir: cfg.dataDir });
   if (db) registerSelfStatusTools(registry, { db, dataDir: cfg.dataDir });
 
   if (!phoneReady) {

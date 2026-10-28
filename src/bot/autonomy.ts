@@ -1,10 +1,12 @@
 import type { BotConfig } from "./config.ts";
 import { BotService } from "./service.ts";
 import { ReaderAgent } from "./reader.ts";
+import { Reading } from "./reading.ts";
 import { appendJournal } from "../tools/journal.ts";
 import { parseIntent } from "../intent.ts";
 import { anchorRepeats, recentAnchors, rememberThought } from "../thought.ts";
 import { loadTuning } from "../tuning.ts";
+import { addItem } from "../queue.ts";
 import { dayKey } from "../util.ts";
 import { join } from "node:path";
 
@@ -24,18 +26,23 @@ import { join } from "node:path";
  * 都记在行为里，而不是靠「翻到过」判断兴趣。
  */
 /**
- * 走神和它派生出来的动作都不碰手机。
+
+/**
+ * 走神**只拿三个工具**：记账、写手记、翻更早的对话。
  *
- * 「忽然想起一件事」不是「拿起手机玩」。手机截图/读屏一次几千字，
- * 进了工具循环还每轮重发；而且动过手机之后，想法往往就被屏幕带跑了。
- * （手机工具仍然挂在聊天和「途径=内容/做」之外的地方——聊天里她照样能用。）
+ * 2026-10-28 改的。以前给它 63 个（全部减手机），光工具定义就 6.4k token，
+ * 每次走神都重发一遍；而且工具一多，它就忍不住当场动手（一天 188 次）。
+ * 现在它只负责「想清楚要做什么」，做交给队列 + 批处理。
  */
-const noPhoneTools = (name: string): boolean => !name.startsWith("phone_");
+const thinkTools = (name: string): boolean =>
+  name === "queue_add" || name === "self_note" || name === "memory_recent";
 
 export class AutonomyLoop {
   private cfg: BotConfig;
   private service: BotService;
   private reader: ReaderAgent | null;
+  /** 阅读这条管道：读 → 简报 → 落条目 → 学。三种触发者共用（走神·内容 / 队列·heavy / 以后聊天） */
+  readonly reading: Reading;
   private timer: ReturnType<typeof setInterval> | null = null;
   private speakTimer: ReturnType<typeof setInterval> | null = null;
   private busy = false;
@@ -51,6 +58,7 @@ export class AutonomyLoop {
     this.onSpeak = onSpeak ?? null;
     const tools = service.toolRegistry();
     this.reader = tools ? new ReaderAgent(cfg, tools) : null;
+    this.reading = new Reading(cfg, service, this.reader);
   }
 
   noteUserMessage(): void {
@@ -166,60 +174,6 @@ export class AutonomyLoop {
       .join("\n");
   }
 
-  /**
-   * 读完之后的交代：四个问题，然后**真的学进去**（知识库/词库）。
-   * 以前只有一句「说一句真实的看法」→ 它只能评价内容，落不到自己身上。
-   */
-  private buildLearnPrompt(summary: string, learned: number): string {
-    return [
-      "阅读员刚去看了一圈，简报如下：",
-      "",
-      summary,
-      "",
-      "——",
-      "这是内部简报，别复述给任何人。",
-      this.situation(),
-      "",
-      "按这四个问题想一遍，把它变成你自己的东西：",
-      "1. 这跟我的目的有什么关系？",
-      "2. 我能学到什么？",
-      "3. 这对我是好的吗？（有没有反例、代价，我原来的做法要不要改）",
-      "4. 我要怎么做？",
-      "",
-      learned > 0
-        ? `（其中 ${learned} 条已经自动收进知识库了，可以用 kb_search 看看；要补充/改写就用 kb_add。）`
-        : "（这次没能自动收进知识库——如果你真学到了什么，用 kb_add 记进去。）",
-      "遇到新词、梗、黑话，用 learn 记进词库（说清是谁说的）。",
-      "最后用 self_note 记一句：这四问你答了什么、接下来要做什么。",
-      "如果这次确实没学到什么，就直说「今天没学到」，不要凑。",
-    ]
-      .filter((s) => s.length > 0)
-      .join("\n");
-  }
-
-  /** 派给阅读员的任务：读什么。带上「我的处境」，让它知道该往哪儿找 */
-  private buildReadTask(): string {
-    const watched = this.watchedBrief();
-    const budget = this.service.autonomyBudget();
-    const quotaLine = budget.videoUnlimited
-      ? `今天读视频不限次数（已经读了 ${budget.videoUsed} 个）。`
-      : `今天还能读 ${budget.videoLeft} 个视频。`;
-    return [
-      "今天有什么值得看的。翻一翻热门和排行，挑值得的花时间读。",
-      this.situation(),
-      watched.length > 0 ? `今天已经看过：${watched}。看过的也可以再看，重读一遍往往比看新的收获大。` : "",
-      quotaLine,
-      "额度你自己分配：想读几个读几个。",
-      "如果今天想轻松点：用 bili_search 搜「热梗」「梗合集」「网络热词」，",
-      "  把还在流行的梗学下来（category 填「热梗」，source 写 BV 号和日期，content 写清意思+什么场合用+一句例句）。",
-      "  过时的不学——记梗是为了聊天时能用，不是攒词条。",
-      "但每一条读过的都要写清楚它讲了什么——读了却不记住，等于白花额度。",
-      "读不完的记下来，明天接着读。",
-    ]
-      .filter((s) => s.length > 0)
-      .join("\n");
-  }
-
   /** 让它自己玩手机的指令（放开手，只留一条关于钱的） */
   private buildPlayPrompt(): string {
     return [
@@ -275,20 +229,11 @@ export class AutonomyLoop {
         return { ran: true, reason: "掷中了，让它自己玩手机", text: played };
       }
 
-      if (this.reader) {
-        const report = await this.reader.read(this.buildReadTask());
-        if (report.summary.length === 0) return { ran: false, reason: "阅读员没读出东西" };
-
-        // 读过的必须留下来：先落一条 note（过程），再**必须进知识库**（能用得上）。
-        // 词库/知识库本来就是靠聊天和 B 站学的，只记流水账等于白读。
-        let learned = 0;
-        for (const item of parseReadItems(report.summary)) {
-          this.service.recordNote(`读到的：${item}`);
-          if (this.service.rememberLearned(item)) learned++;
-        }
-
-        // 主对话只拿到简报，看不见字幕原文
-        said = await this.service.act(this.buildLearnPrompt(report.summary, learned));
+      if (this.reading.hasReader()) {
+        // 读 → 简报 → 落条目 → 学，全在 Reading 里；这里只管把结果写进手记
+        const r = await this.reading.run({ why: "自己待着，想看看今天有什么值得读的" });
+        if (!r.ok) return { ran: false, reason: r.reason };
+        said = r.said;
       } else {
         said = await this.service.act(this.buildInstruction());
       }
@@ -470,7 +415,7 @@ export class AutonomyLoop {
     this.busy = true;
     const started = Date.now();
     try {
-      const raw = await this.service.think({ ...anchor, repeats });
+      const raw = await this.service.think({ ...anchor, repeats }, { toolFilter: thinkTools });
       const intent = parseIntent(raw);
       const text = raw.trim();
 
@@ -517,7 +462,7 @@ export class AutonomyLoop {
       // 这条路以前挂在「自主活动」上（每 6 分钟一轮，不管她想不想看）；
       // 现在挂到走神上——她想起一件事、判断「该去看看」，才真的去看。
       if (intent.channel === "content") {
-        const said = await this.readOnce();
+        const said = await this.readOnce(`想起「${anchor.name}」，想去看点相关的`);
         appendJournal(
           cfg.dataDir,
           dayKey(started),
@@ -526,19 +471,31 @@ export class AutonomyLoop {
         return { thought: true, reason: `想起「${anchor.name}」，去看了一轮`, text: said };
       }
 
-      // 途径 = 做：真的动手。
-      // 以前这里只写一行手记，intent.action 从来没人用——「决定去做」等于没做。
-      // 现在给它一个执行器：限 3 轮工具，且和走神一样不许碰手机。
+      // 途径 = 做：**只记进待办，不立刻动手**（2026-10-28 改）。
+      // 以前每条都当场跑一轮（一天 188 次、每次约 3 万 token），
+      // 现在写进队列，攒够 10 条或最老的等满 30 分钟，由 BatchRunner 一次性做掉。
       if (intent.channel === "act") {
         const todo = String(intent.action ?? intent.goal ?? "").trim();
         if (todo.length > 0) {
-          const did = await this.actOnce(todo);
+          const q = addItem(cfg.dataDir, {
+            kind: "light",
+            what: todo,
+            why: String(intent.goal ?? ""),
+            done: "",
+          });
+          const note = q.ok
+            ? `记下了（${q.item!.id}），队列 ${q.total} 条，攒够一起做`
+            : (q.reason ?? "已经在队列里了");
           appendJournal(
             cfg.dataDir,
             dayKey(started),
-            `（${new Date(started).toTimeString().slice(0, 5)} 想起${anchor.name} → 做）${did}`,
+            `（${new Date(started).toTimeString().slice(0, 5)} 想起${anchor.name} → 做·记账）${todo} —— ${note}`,
           );
-          return { thought: true, reason: `想起「${anchor.name}」，动手做了：${todo.slice(0, 20)}`, text: did };
+          return {
+            thought: true,
+            reason: `想起「${anchor.name}」，记进待办：${todo.slice(0, 20)}`,
+            text: note,
+          };
         }
       }
 
@@ -566,27 +523,10 @@ export class AutonomyLoop {
    * 从「每 6 分钟定时跑一轮」改成「走神判断该看才跑」。
    * 阅读员仍然只拿 5 个读的工具、仍然只交回几百字简报（字幕原文不进这里）。
    */
-  private async readOnce(): Promise<string> {
-    if (!this.reader) return "";
-    const report = await this.reader.read(this.buildReadTask());
-    if (report.summary.length === 0) return "";
-    let learned = 0;
-    for (const item of parseReadItems(report.summary)) {
-      this.service.recordNote(`读到的：${item}`);
-      if (this.service.rememberLearned(item)) learned += 1;
-    }
-    // 4 轮够它写手记 + 补知识库；再多就是白烧钱
-    return this.service.act(this.buildLearnPrompt(report.summary, learned), 4, { toolFilter: noPhoneTools });
-  }
-
-  /** 途径=做：给她一件事，让她真的去做（3 轮工具，不许碰手机）。 */
-  private async actOnce(todo: string): Promise<string> {
-    const instruction = [
-      `刚才你想到一件事，决定动手做：${todo}`,
-      "",
-      "现在去做。能用工具就动手，做完用一两句说结果；不要只表态，也别复述这段话。",
-    ].join("\n");
-    return this.service.act(instruction, 3, { toolFilter: noPhoneTools });
+  private async readOnce(why: string): Promise<string> {
+    // 读 → 简报 → 落条目 → 学（4 轮）都在 Reading 里；这里只取最后那句话
+    const r = await this.reading.run({ why });
+    return r.said;
   }
 
   /** 走神的定时器：间隔随机，避免像节拍器 */
@@ -641,33 +581,4 @@ export class AutonomyLoop {
 
 export function journalDirFor(cfg: BotConfig): string {
   return join(cfg.dataDir, "journal");
-}
-
-/**
- * 从阅读员的简报里抽出「读过的条目」。
- *
- * 它可能写成一行一条，也可能写成【读了】小标题 + 多行列表——两种都要认，
- * 否则读过的东西一条都进不了记忆。
- */
-export function parseReadItems(summary: string): string[] {
-  const items: string[] = [];
-  const lines = summary.split(/\r?\n/);
-  let inSection = false;
-
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (line.length === 0) continue;
-
-    const header = /^【(.+?)】\s*(.*)$/.exec(line);
-    if (header) {
-      inSection = header[1]!.includes("读了") || header[1]!.includes("值得");
-      const rest = (header[2] ?? "").trim();
-      if (inSection && rest.length > 0) items.push(rest);
-      continue;
-    }
-
-    if (inSection) items.push(line);
-  }
-
-  return items.slice(0, 10);
 }
