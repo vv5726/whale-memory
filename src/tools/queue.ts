@@ -32,6 +32,9 @@ export function registerQueueTools(registry: ToolRegistry, opts: { dataDir: stri
           why: String(args.why ?? ""),
           done: String(args.done ?? ""),
         });
+        if (r.merged) {
+          return { ok: true, text: `${r.reason ?? "并进同一件事了"}（队列 ${r.total} 条）` };
+        }
         if (!r.ok) return { ok: false, text: r.reason ?? "没记进去" };
         return { ok: true, text: `记下了（${r.item!.id}）。队列里现在 ${r.total} 件事，攒够了一起做。` };
       },

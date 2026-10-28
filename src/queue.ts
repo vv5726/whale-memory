@@ -30,8 +30,51 @@ export interface QueueItem {
   done: string;
   status: QueueStatus;
   tries: number;
+  /** 同一件事被记过几次（>1 = 她一直在同一个坑里打转，这是信号） */
+  merges?: number;
+  /** 最近一次又想起它 */
+  lastAt?: string;
   /** 结果（一句话） */
   result: string;
+}
+
+/**
+ * 判断两件事是不是同一个主题。
+ *
+ * 不用 Jaccard：她的手写句子又长又少重复用词，实测最高只有 0.11；
+ * 但「称呼」「追问」「四遍」这种**具体词块**能对上。
+ * 规则：**共享 ≥2 个非通用的二字词块 → 同一个主题**。
+ * （拿今天真实的 12 条验过：合并 10 对，都是同一件事的不同说法。）
+ */
+const STOP_CHARS = new Set(
+  "的了是我他她你这那一不把在个上又就还要想做说和与而且但没也都很有会能可以自己对被从到为所以因为如果这样那样什么怎么多少".split(""),
+);
+const GENERIC = new Set([
+  "找出", "出来", "以后", "现在", "这条", "那件", "一件", "下次", "先问", "到底",
+  "已经", "正在", "这件", "那个", "这个", "事情", "东西", "问题", "规矩", "记忆",
+  "说话", "想法", "办法", "方法", "内容", "地方", "时候", "一套", "一条", "一遍",
+  "一次", "第一", "第二", "第三", "第四", "句里", "句话",
+]);
+
+function topicTerms(text: string): Set<string> {
+  const clean = String(text).replace(/[\s\p{P}\p{S}]+/gu, "");
+  const out = new Set<string>();
+  for (let i = 0; i < clean.length - 1; i += 1) {
+    const g = clean.slice(i, i + 2);
+    if ([...g].some((c) => STOP_CHARS.has(c))) continue;
+    if (GENERIC.has(g)) continue;
+    out.add(g);
+  }
+  return out;
+}
+
+/** 共享几个词块（只看 what；why 常常是同一句话的复述） */
+function sharedTerms(a: string, b: string): number {
+  const A = topicTerms(a);
+  const B = topicTerms(b);
+  let n = 0;
+  for (const g of A) if (B.has(g)) n += 1;
+  return n;
 }
 
 const KINDS: QueueKind[] = ["light", "deep", "heavy"];
@@ -95,26 +138,58 @@ export interface AddInput {
   done?: string;
 }
 
-export function addItem(dataDir: string, input: AddInput, now = new Date()): { ok: boolean; item?: QueueItem; reason?: string; total?: number } {
+export function addItem(
+  dataDir: string,
+  input: AddInput,
+  now = new Date(),
+): { ok: boolean; item?: QueueItem; reason?: string; total?: number; merged?: boolean } {
   const what = String(input.what ?? "").trim();
   if (what.length < 2) return { ok: false, reason: "没写清要做什么" };
   const kindRaw = String(input.kind ?? "light").trim().toLowerCase() as QueueKind;
   const kind: QueueKind = KINDS.includes(kindRaw) ? kindRaw : "light";
+  const why = String(input.why ?? "").trim();
 
   const items = loadQueue(dataDir);
-  // 同一件事不排两遍：what 前 20 字相同就算重复（她经常反复想起同一件事）
+
+  // ① 完全一样：what 前 20 字相同 —— 直接拒
   const dup = items.find((i) => i.status === "pending" && i.what.slice(0, 20) === what.slice(0, 20));
   if (dup) return { ok: false, reason: `这件事已经在队列里了（${dup.id}）`, item: dup, total: items.length };
+
+  // ② 同一个主题的另一种说法 —— 并进已有的那条，并把「又想了第几次」记下来。
+  //    这比另开一条有用：批处理时会看到「同一件事想了 8 次」，那是该一次做透的信号。
+  const same = items
+    .filter((i) => i.status === "pending" && i.kind === kind)
+    .map((i) => ({ i, n: sharedTerms(i.what, what) + sharedTerms(i.what, why) * 0.5 }))
+    .filter((x) => x.n >= 2)
+    .sort((a, b) => b.n - a.n)[0];
+  if (same) {
+    const hit = same.i;
+    hit.merges = (hit.merges ?? 1) + 1;
+    hit.lastAt = stampLocal(now);
+    if (why.length > 0 && !hit.why.includes(why.slice(0, 12))) {
+      hit.why = `${hit.why}${hit.why.length > 0 ? " ／ " : ""}${why}`.slice(0, 400);
+    }
+    // 原来的 at 不动：不然 90 分钟的等待会被无限续期
+    saveQueue(dataDir, items);
+    return {
+      ok: false,
+      merged: true,
+      item: hit,
+      reason: `这就是 ${hit.id} 那件事（已经想了 ${hit.merges} 次），并进去不新开`,
+      total: items.length,
+    };
+  }
 
   const item: QueueItem = {
     id: nextId(items, now),
     at: stampLocal(now),
     kind,
-    why: String(input.why ?? "").trim(),
+    why,
     what,
     done: String(input.done ?? "").trim(),
     status: "pending",
     tries: 0,
+    merges: 1,
     result: "",
   };
   items.push(item);
@@ -193,8 +268,9 @@ export function queueStats(dataDir: string): {
 /** 队列文本（给工具和批处理看） */
 export function describeItem(i: QueueItem, n?: number): string {
   const head = n ? `${n}. ` : "";
+  const times = (i.merges ?? 1) > 1 ? `（同一件事你想了 ${i.merges} 次——这次别再绕）` : "";
   return [
-    `${head}[${i.id}]（${i.kind}）${i.what}`,
+    `${head}[${i.id}]（${i.kind}）${i.what}${times}`,
     i.why.length > 0 ? `    为什么：${i.why}` : "",
     i.done.length > 0 ? `    做完算成：${i.done}` : "",
     i.tries > 0 ? `    （试过 ${i.tries} 次没成）` : "",

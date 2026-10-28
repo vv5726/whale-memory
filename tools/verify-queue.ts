@@ -12,7 +12,7 @@ import { loadBotConfig } from "../src/bot/config.ts";
 import { BotService } from "../src/bot/service.ts";
 import { BatchRunner } from "../src/bot/batch.ts";
 import { Reading } from "../src/bot/reading.ts";
-import { addItem, loadQueue, markItem, expireOld, queueStats, saveQueue, stampLocal } from "../src/queue.ts";
+import { addItem, describeItem, loadQueue, markItem, expireOld, queueStats, saveQueue, stampLocal } from "../src/queue.ts";
 
 const TMP = "data/tmp-verify-queue";
 const DB = join(TMP, "q.db");
@@ -69,12 +69,12 @@ const g1 = batch.shouldRun();
 check("才 2 条、没等够 → 不跑", g1.ok === false, g1.reason);
 
 saveQueue(TMP, []);
-for (let i = 0; i < 8; i += 1) addItem(TMP, { what: `批量任务 ${i}`, kind: "light" });
+for (const w of ["查一下两千块还了没", "把手机里那个 App 卸了", "读一遍抽取规则的第九条", "把日记里上周三那段找出来", "算一下这个月话费还剩多少", "把表情包里重复的三张删了", "问问他那个项目上线没有", "把知识库里讲 harness 的条目补全"]) addItem(TMP, { what: w, kind: "light" });
 const g2 = batch.shouldRun();
 check("攒够 8 条 → 跑", g2.ok === true, g2.reason);
 
 saveQueue(TMP, []);
-for (let i = 0; i < 3; i += 1) addItem(TMP, { what: `深任务 ${i}`, kind: "deep" });
+for (const w of ["想清楚为什么总把称呼当线索", "复盘那次手术的对话我漏了什么", "想明白记忆压实该按什么顺序"]) addItem(TMP, { what: w, kind: "deep" });
 const g3 = batch.shouldRun();
 check("深任务攒够 3 条 → 跑", g3.ok === true, g3.reason);
 
@@ -85,6 +85,20 @@ old[0]!.at = stampLocal(new Date(Date.now() - 91 * 60_000));
 saveQueue(TMP, old);
 const g4 = batch.shouldRun();
 check("最老的等了 91 分钟 → 跑", g4.ok === true, g4.reason);
+
+// ── A2 同主题合并 ──
+console.log("\n=== A2 同一件事的不同说法要并进去 ===");
+saveQueue(TMP, []);
+const m1 = addItem(TMP, { what: "把「称呼只问一次」这条规矩固定下来", why: "一个称呼只问一次就够", kind: "light" });
+check("第一条新开", m1.ok === true && m1.item?.merges === 1, JSON.stringify({ ok: m1.ok, merges: m1.item?.merges }));
+const m2 = addItem(TMP, { what: "把那四句话里重复追问的毛病找出来，以后一个称呼只问一次", why: "重复追问", kind: "light" });
+check("换个说法的同一件事 → 并进去", m2.merged === true, m2.reason ?? "");
+check("并进去之后没有新开条目", loadQueue(TMP).length === 1, `${loadQueue(TMP).length} 条`);
+check("次数记成了 2", loadQueue(TMP)[0]?.merges === 2, String(loadQueue(TMP)[0]?.merges));
+check("两条 why 都留着", (loadQueue(TMP)[0]?.why ?? "").includes("／"), loadQueue(TMP)[0]?.why ?? "");
+const m3 = addItem(TMP, { what: "把手机里那个没用的 App 卸了", why: "占地方", kind: "light" });
+check("不相干的 → 照样新开", m3.ok === true && loadQueue(TMP).length === 2, `${loadQueue(TMP).length} 条`);
+check("describeItem 会提示「想了 N 次」", describeItem(loadQueue(TMP)[0]!).includes("想了 2 次"), describeItem(loadQueue(TMP)[0]!).slice(0, 60));
 
 // ── D 真跑一轮 ──
 console.log("\n=== D 端到端：批处理真跑一轮 ===");
